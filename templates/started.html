@@ -2,67 +2,6 @@
 <!DOCTYPE html>
 <html>
 <head>
-<<<<<<< HEAD
-  <title>Zoom Poll Automation Started</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      line-height: 1.6;
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 20px;
-    }
-    h1 {
-      color: #0066FF;
-    }
-    .container {
-      background: #f9f9f9;
-      padding: 20px;
-      border-radius: 5px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
-    }
-    .status {
-      background: #e1f5fe;
-      padding: 15px;
-      border-left: 4px solid #0288d1;
-      margin: 20px 0;
-    }
-    button {
-      background: #f44336;
-      color: white;
-      padding: 10px 15px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-    button:hover {
-      background: #d32f2f;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>🚀 Automation Started</h1>
-    
-    <div class="status">
-      <h3>Status: Running</h3>
-      <p>The poll automation is now running. Check your terminal for live logs.</p>
-    </div>
-    
-    <p><strong>What's happening:</strong></p>
-    <ol>
-      <li>Recording audio at specified intervals</li>
-      <li>Transcribing the audio using Whisper</li>
-      <li>Generating relevant polls with LLaMA based on transcript</li>
-      <li>Posting polls to your Zoom meeting</li>
-    </ol>
-    
-    <p><button onclick="window.location.href='/stop'">Stop Automation</button></p>
-    
-    <p><a href="/setup">Back to Setup</a></p>
-  </div>
-=======
     <title>Running - Zoom Poll Automator</title>
     <style>
         body {
@@ -215,7 +154,7 @@
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
                     {% for message in messages %}
-                        <div class="status {% if 'failed' in message.lower() or 'error' in message.lower() %}error{% elif 'warning' in message.lower() %}warning{% else %}success{% endif %}">
+                        <div class="status {% if 'error' in message.lower() %}error{% elif 'warning' in message.lower() %}warning{% else %}success{% endif %}">
                             {{ message }}
                         </div>
                     {% endfor %}
@@ -248,17 +187,16 @@
                 <li>Keep this window open while the automation is running</li>
                 <li>Use the Stop button below to safely stop the automation</li>
                 <li>Check your terminal for detailed logs and any errors</li>
-                <li>Make sure your audio device is properly configured</li>
+                <li>The system will automatically generate polls based on the meeting content</li>
             </ul>
         </div>
 
         <div class="nav">
-            <form method="POST" action="{{ url_for('stop') }}" style="display: inline;">
+            <form action="{{ url_for('stop') }}" method="post" style="display: inline;">
                 <button type="submit" class="button stop">Stop Automation</button>
             </form>
             <a href="{{ url_for('setup') }}" class="button secondary">Back to Setup</a>
         </div>
     </div>
->>>>>>> bcc4988 (Initial commit of Zoom Poll Automator project, including core functionality for audio capture, transcription, poll generation, and integration with Zoom API. Added CLI interface, web interface, and setup scripts. Configured logging and environment management. Included necessary dependencies and documentation.)
 </body>
 </html>

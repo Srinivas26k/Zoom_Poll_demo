@@ -8,19 +8,25 @@ from poller import generate_poll_from_transcript, post_poll_to_zoom
 
 console = Console()
 
-def run_loop(zoom_token, meeting_id, duration, device, should_stop):
+def run_loop(device, should_stop):
     """
     Forever: record → transcribe → generate + post poll → delete files
     Until should_stop Event is set.
     
     Args:
-        zoom_token: The Zoom API token
-        meeting_id: The Zoom meeting ID
-        duration: Duration in seconds to record each segment
         device: Audio device name to use for recording
         should_stop: threading.Event object to signal loop termination
     """
     cycle = 0
+    # Get configuration from environment
+    zoom_token = os.getenv("ZOOM_TOKEN")
+    meeting_id = os.getenv("MEETING_ID")
+    duration = int(os.getenv("SEGMENT_DURATION", "30"))
+
+    if not zoom_token or not meeting_id:
+        console.log("[red]❌ Missing ZOOM_TOKEN or MEETING_ID in environment[/]")
+        return
+
     while not should_stop.is_set():
         cycle += 1
         console.log(f"[blue]▶️  Cycle {cycle}[/]")
