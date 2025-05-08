@@ -9,19 +9,29 @@ from rich.console import Console
 console = Console()
 
 def list_audio_devices():
-    """List all available audio input devices"""
-    devices = sd.query_devices()
-    console.log("[blue]Available audio devices:[/]")
-    for i, dev in enumerate(devices):
-        if dev['max_input_channels'] > 0:  # Only show input devices
-            console.log(f"  {i}: {dev['name']}")
-    return devices
+    """List all available audio input devices and return them"""
+    try:
+        devices = sd.query_devices()
+        console.log("[blue]Available audio devices:[/]")
+        input_devices = []
+        for i, dev in enumerate(devices):
+            if dev['max_input_channels'] > 0:  # Only show input devices
+                console.log(f"  {i}: {dev['name']}")
+                input_devices.append(dev)
+        
+        if not input_devices:
+            console.log("[yellow]⚠️ No input devices found[/]")
+        
+        return input_devices
+    except Exception as e:
+        console.log(f"[red]❌ Error listing audio devices: {str(e)}[/]")
+        return []
 
 def record_segment(duration: int,
                    samplerate: int = 44100,
                    channels:   int = 2,
                    output:     str = "segment.wav",
-                   device:     str = None):
+                   device     = None):
     """
     1) Record stereo @44.1 kHz from `device` (or default if device is None/empty)
     2) Mix to mono, resample to 16 kHz, normalize, save to `segment.wav`
@@ -30,13 +40,31 @@ def record_segment(duration: int,
     dev = None
     if device:
         try:
-            devices = sd.query_devices()
-            # Try to find by name (partial match)
-            for i, d in enumerate(devices):
-                if device.lower() in d['name'].lower() and d['max_input_channels'] > 0:
-                    dev = i
-                    console.log(f"[green]Found device {i}: {d['name']}[/]")
-                    break
+            # If device is already an index or dictionary with an index, use that
+            if isinstance(device, dict) and 'index' in device:
+                dev = device['index']
+                console.log(f"[green]Using device index {dev}: {device.get('name', 'Unknown')}[/]")
+            elif isinstance(device, dict) and 'name' in device:
+                # If it's a dict with a name but no index, search for it
+                device_name = device['name']
+                devices = sd.query_devices()
+                for i, d in enumerate(devices):
+                    if d['name'] == device_name and d['max_input_channels'] > 0:
+                        dev = i
+                        console.log(f"[green]Found device {i}: {d['name']}[/]")
+                        break
+            elif isinstance(device, str):
+                # If a string is provided, do partial match
+                devices = sd.query_devices()
+                for i, d in enumerate(devices):
+                    if device.lower() in d['name'].lower() and d['max_input_channels'] > 0:
+                        dev = i
+                        console.log(f"[green]Found device {i}: {d['name']}[/]")
+                        break
+            elif isinstance(device, int):
+                # If an integer is provided, use it directly
+                dev = device
+                console.log(f"[green]Using device index {dev}[/]")
             
             if dev is None:
                 console.log(f"[yellow]⚠️ Device '{device}' not found, using default[/]")

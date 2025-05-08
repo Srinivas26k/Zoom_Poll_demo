@@ -40,7 +40,7 @@ REM Check if virtual environment exists
 if not exist "venv" (
     call :colorPrint %YELLOW% 0 "[i] First time setup..."
     echo.
-    python zoom-poll setup
+    python setup.py
     if errorlevel 1 (
         call :colorPrint %RED% 0 "[!] Setup failed. Please check the error messages above."
         pause
@@ -62,7 +62,7 @@ REM Check for .env file
 if not exist ".env" (
     call :colorPrint %RED% 0 "[!] Configuration file not found."
     call :colorPrint %YELLOW% 0 "[i] Running setup to create configuration..."
-    python zoom-poll setup
+    python setup.py
     if errorlevel 1 (
         call :colorPrint %RED% 0 "[!] Setup failed. Please check the errors above."
         pause
@@ -101,26 +101,27 @@ if errorlevel 1 (
 )
 call :colorPrint %GREEN% 0 "[+] Ollama connection successful."
 
-REM Check required llama model
+REM Check required llama model - Automatic download without prompting
 echo.
 call :colorPrint %BLUE% 0 "[*] Verifying llama3.2 model..."
-curl -s http://localhost:11434/api/tags | findstr "llama3.2" > nul
+
+REM Use ollama list instead of curl to check for model
+ollama list 2>nul | findstr "llama3.2" > nul
+
 if errorlevel 1 (
     call :colorPrint %YELLOW% 0 "[!] llama3.2 model not found."
-    choice /C YN /M "Do you want to download the llama3.2 model now? (Y/N)"
-    if !errorlevel! equ 1 (
-        call :colorPrint %BLUE% 0 "[*] Downloading llama3.2 model... This might take several minutes."
-        call :colorPrint %YELLOW% 0 "[i] Please do not close this window."
-        
-        start /wait cmd /c "echo Downloading llama3.2 - Please wait... && ollama pull llama3.2:latest"
-        
-        if errorlevel 1 (
-            call :colorPrint %RED% 0 "[!] Failed to download llama3.2 model."
-            pause
-            exit /b 1
-        )
+    call :colorPrint %BLUE% 0 "[*] Automatically downloading llama3.2 model... This might take several minutes."
+    call :colorPrint %YELLOW% 0 "[i] Please do not close this window."
+    
+    REM Run in foreground to ensure completion before continuing
+    ollama pull llama3.2:latest
+    
+    if errorlevel 1 (
+        call :colorPrint %RED% 0 "[!] Failed to download llama3.2 model."
+        call :colorPrint %YELLOW% 0 "[i] The application may not work correctly without the model."
+        timeout /t 5 /nobreak > nul
     ) else (
-        call :colorPrint %YELLOW% 0 "[i] The application may not work correctly without the llama3.2 model."
+        call :colorPrint %GREEN% 0 "[+] Successfully downloaded llama3.2 model."
     )
 ) else (
     call :colorPrint %GREEN% 0 "[+] llama3.2 model is available."
@@ -136,8 +137,8 @@ echo.
 call :colorPrint %YELLOW% 0 "[i] IMPORTANT: Press Ctrl+C to stop the application when done."
 echo.
 
-REM Start the Flask application
-python zoom-poll start
+REM Start the Flask application - Use app.py directly instead of the non-existent zoom-poll
+python app.py
 if errorlevel 1 (
     call :colorPrint %RED% 0 "[!] Application crashed. Please check the errors above."
     pause
