@@ -83,7 +83,7 @@ if %errorlevel% neq 0 (
     pip install python-dotenv>=0.21
     pip install requests>=2.25
     pip install openai>=0.27
-    pip install git+https://github.com/openai/whisper.git@main
+    pip install git+https://github.com/openai/whisper.git
     pip install sounddevice>=0.4
     pip install soundfile>=0.11
     pip install librosa>=0.10
@@ -158,6 +158,8 @@ echo %ESC%%BLUE%[*] Creating .env file...%ESC%%RESET%
 
 set /p CLIENT_ID=%ESC%%WHITE%Enter your Zoom Client ID: %ESC%%RESET%
 set /p CLIENT_SECRET=%ESC%%WHITE%Enter your Zoom Client Secret: %ESC%%RESET%
+set /p REDIRECT_URI=%ESC%%WHITE%Enter your Redirect URI (default: http://localhost:8000/oauth/callback): %ESC%%RESET%
+if "%REDIRECT_URI%"=="" set REDIRECT_URI=http://localhost:8000/oauth/callback
 
 :: Generate random SECRET_TOKEN
 set "CHARS=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -170,7 +172,7 @@ echo %ESC%%WHITE%Generated random SECRET_TOKEN: !SECRET_TOKEN!%ESC%%RESET%
     echo CLIENT_ID=!CLIENT_ID!
     echo CLIENT_SECRET=!CLIENT_SECRET!
     echo SECRET_TOKEN=!SECRET_TOKEN!
-    echo REDIRECT_URI=http://localhost:8000/oauth/callback
+    echo REDIRECT_URI=!REDIRECT_URI!
     echo LLAMA_HOST=http://localhost:11434
 ) > .env
 
