@@ -1,0 +1,26 @@
+<<<<<<< HEAD
+#requirements.txt
+Flask>=2.0
+python-dotenv>=0.21
+requests>=2.25
+openai>=0.27
+whisper @ git+https://github.com/openai/whisper.git@main
+sounddevice>=0.4
+soundfile>=0.11
+librosa>=0.10
+numpy>=1.23
+rich>=12
+=======
+Flask>=2.0.0
+python-dotenv>=0.21.0
+requests>=2.25.0
+openai>=0.27.0
+whisper @ git+https://github.com/openai/whisper.git
+sounddevice>=0.4.5
+soundfile>=0.11.0
+librosa>=0.10.0
+numpy>=1.23.0
+rich>=12.0.0
+webbrowser>=0.10.6
+click>=8.0.0
+>>>>>>> bcc4988 (Initial commit of Zoom Poll Automator project, including core functionality for audio capture, transcription, poll generation, and integration with Zoom API. Added CLI interface, web interface, and setup scripts. Configured logging and environment management. Included necessary dependencies and documentation.)

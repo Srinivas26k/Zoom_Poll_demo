@@ -1,0 +1,329 @@
+<!-- templates/setup.html -->
+<!DOCTYPE html>
+<html>
+<head>
+<<<<<<< HEAD
+  <title>Setup Zoom Poll Automation</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    pre {
+      background: #f0f0f0;
+      padding: 1em;
+      border-radius: 5px;
+      overflow: auto;
+      max-height: 100px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 15px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    button {
+      background: #0066FF;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background: #0052cc;
+    }
+    .note {
+      background: #fffde7;
+      padding: 10px;
+      border-left: 4px solid #ffd600;
+      margin-bottom: 20px;
+    }
+    .flash {
+      background: #e8f5e9;
+      padding: 10px;
+      border-left: 4px solid #4caf50;
+      margin-bottom: 20px;
+    }
+    .flash.error {
+      background: #ffebee;
+      border-left-color: #f44336;
+    }
+  </style>
+</head>
+<body>
+  <h1>✅ Successfully Logged in with Zoom</h1>
+  
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      {% for message in messages %}
+        <div class="flash {% if 'error' in message.lower() %}error{% endif %}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+  
+  <div class="note">
+    <p><strong>Important:</strong> To capture meeting audio, you'll need to configure your system's audio to route the meeting sound to your selected recording device.</p>
+    <p>On Windows, "Stereo Mix" is a common option if enabled. On Mac, you may need a virtual audio device like BlackHole.</p>
+  </div>
+  
+  <p>Your Zoom Access Token (valid for 1 hour):</p>
+  <pre>{{ token }}</pre>
+  
+  <h2>Configure Poll Generation</h2>
+  <form method="post">
+    <p>
+      <label for="meeting_id">Meeting ID:</label>
+      <input name="meeting_id" id="meeting_id" required placeholder="Enter your Zoom meeting ID (no spaces)">
+    </p>
+    
+    <p>
+      <label for="duration">Segment Duration (seconds):</label>
+      <input name="duration" id="duration" type="number" value="60" min="10" max="300" required>
+      <small>How long to record before generating each poll (10-300 seconds)</small>
+    </p>
+    
+    <p>
+      <label for="device">Audio Device:</label>
+      {% if devices %}
+        <select name="device" id="device">
+          <option value="">Default Device</option>
+          {% for device in devices %}
+            <option value="{{ device.name }}">{{ device.name }}</option>
+          {% endfor %}
+        </select>
+      {% else %}
+        <input name="device" id="device" placeholder="e.g. Stereo Mix (leave blank for default)">
+      {% endif %}
+      <small>Select your audio device for recording</small>
+    </p>
+    
+    <button type="submit">Start Automation</button>
+  </form>
+  
+  <p>After starting, check the terminal for live logs and status updates.</p>
+=======
+    <title>Setup - Zoom Poll Automator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        .header h1 {
+            color: #2D8CFF;
+            margin: 0;
+            font-size: 2.5em;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #333;
+        }
+        input[type="text"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        input[type="number"] {
+            width: 150px;
+        }
+        .help-text {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #2D8CFF;
+            color: white;
+            text-decoration: none;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            min-width: 200px;
+        }
+        .button:hover {
+            background: #2681F2;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .button.secondary {
+            background: #6c757d;
+        }
+        .button.secondary:hover {
+            background: #5a6268;
+        }
+        .button.start {
+            background: #28a745;
+            font-size: 1.2em;
+            padding: 15px 30px;
+        }
+        .button.start:hover {
+            background: #218838;
+        }
+        .status {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            border-left: 4px solid;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border-left-color: #28a745;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left-color: #dc3545;
+        }
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border-left-color: #ffeeba;
+        }
+        .nav {
+            margin: 30px 0;
+            text-align: center;
+        }
+        .token-info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            border-left: 4px solid #2D8CFF;
+        }
+        .token-info code {
+            background: #f8f9fa;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        .note {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            border-left: 4px solid #ffc107;
+        }
+        .note h3 {
+            color: #856404;
+            margin-top: 0;
+        }
+        .note ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .note li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Setup Poll Automation</h1>
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="status {% if 'failed' in message.lower() or 'error' in message.lower() %}error{% elif 'warning' in message.lower() %}warning{% else %}success{% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+        </div>
+
+        <div class="token-info">
+            <h3>Zoom Connection Status</h3>
+            <p>Successfully connected to Zoom with token: <code>{{ token[:10] }}...</code></p>
+        </div>
+
+        <div class="note">
+            <h3>Important Setup Information</h3>
+            <p>Before starting the automation, please ensure:</p>
+            <ul>
+                <li>Your audio capture device is properly configured</li>
+                <li>You have the correct meeting ID from your Zoom meeting</li>
+                <li>Ollama is running and the llama3.2 model is available</li>
+                <li>Your Zoom meeting is active and you have host privileges</li>
+            </ul>
+        </div>
+
+        <form method="POST">
+            <div class="form-group">
+                <label for="meeting_id">Meeting ID:</label>
+                <input type="text" id="meeting_id" name="meeting_id" required>
+                <div class="help-text">Enter the numeric meeting ID from your Zoom meeting URL</div>
+            </div>
+
+            <div class="form-group">
+                <label for="duration">Segment Duration (seconds):</label>
+                <input type="number" id="duration" name="duration" value="60" min="10" max="300" required>
+                <div class="help-text">How often to generate polls (10-300 seconds)</div>
+            </div>
+
+            <div class="form-group">
+                <label for="device">Audio Device:</label>
+                <select id="device" name="device" required>
+                    {% if devices %}
+                        {% for device in devices %}
+                            <option value="{{ device }}">{{ device }}</option>
+                        {% endfor %}
+                    {% else %}
+                        <option value="">No audio devices found</option>
+                    {% endif %}
+                </select>
+                <div class="help-text">Select the audio device to capture meeting audio</div>
+            </div>
+
+            <div class="nav">
+                <button type="submit" class="button start">Start Automation</button>
+                <a href="{{ url_for('index') }}" class="button secondary">Back to Home</a>
+            </div>
+        </form>
+    </div>
+>>>>>>> bcc4988 (Initial commit of Zoom Poll Automator project, including core functionality for audio capture, transcription, poll generation, and integration with Zoom API. Added CLI interface, web interface, and setup scripts. Configured logging and environment management. Included necessary dependencies and documentation.)
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!-- templates/error.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Error - Zoom Poll Automator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .error-container {
+      background-color: #ffebee;
+      border-left: 4px solid #f44336;
+      padding: 15px;
+      margin: 20px 0;
+    }
+    h1 {
+      color: #d32f2f;
+    }
+    .steps {
+      background-color: #f5f5f5;
+      padding: 15px;
+      border-radius: 5px;
+    }
+    code {
+      background-color: #eeeeee;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+    .btn {
+      display: inline-block;
+      padding: 8px 16px;
+      background-color: #2196f3;
+      color: white;
+      text-decoration: none;
+      border-radius: 4px;
+      font-weight: bold;
+      margin-top: 20px;
+    }
+    .btn:hover {
+      background-color: #0b7dda;
+    }
+  </style>
+</head>
+<body>
+  <h1>❌ Error</h1>
+  
+  <div class="error-container">
+    <p><strong>{{ error }}</strong></p>
+  </div>
+  
+  <div class="steps">
+    <h2>How to fix this issue:</h2>
+    <ol>
+      <li>
+        <strong>Create a Zoom App:</strong>
+        <ul>
+          <li>Go to <a href="https://marketplace.zoom.us/develop/create" target="_blank">Zoom Developer Portal</a></li>
+          <li>Create a new OAuth app</li>
+          <li>Set Redirect URL to: <code>http://localhost:8000/oauth/callback</code></li>
+          <li>Add the required scopes: <code>meeting:read, meeting:write, user:read</code></li>
+        </ul>
+      </li>
+      <li>
+        <strong>Update your .env file:</strong>
+        <ul>
+          <li>Add your Client ID from Zoom to <code>CLIENT_ID=</code></li>
+          <li>Add your Client Secret from Zoom to <code>CLIENT_SECRET=</code></li>
+          <li>Add a random string for <code>SECRET_TOKEN=</code></li>
+        </ul>
+      </li>
+      <li>
+        <strong>Ensure Ollama is running:</strong>
+        <ul>
+          <li>Start Ollama: <code>ollama serve</code></li>
+          <li>Pull the LLaMA model: <code>ollama pull llama3.2:latest</code></li>
+        </ul>
+      </li>
+      <li>
+        <strong>Restart the application</strong> after making these changes
+      </li>
+    </ol>
+  </div>
+  
+  <a href="/" class="btn">Try Again</a>
+</body>
+</html>
