@@ -156,8 +156,8 @@ def authorize():
         console.log(f"[red]❌ {error}[/]")
         return render_template("error.html", error=error)
     
-    # Use the exact URL format as specified without URL encoding
-    auth_url = f"https://zoom.us/oauth/authorize?response_type=code&client_id={config.CLIENT_ID}&redirect_uri=http://localhost:8000/oauth/callback"
+    # Use the configured REDIRECT_URI from config
+    auth_url = f"https://zoom.us/oauth/authorize?response_type=code&client_id={config.CLIENT_ID}&redirect_uri={config.REDIRECT_URI}"
     
     console.log(f"Redirecting to: {auth_url}")
     return redirect(auth_url)

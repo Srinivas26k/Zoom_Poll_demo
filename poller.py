@@ -141,6 +141,35 @@ def generate_poll_from_transcript(transcript: str) -> tuple[str, str, list[str]]
         
         return fallback_title, fallback_question, fallback_options
 
+def launch_poll(meeting_id: str, poll_id: str, token: str) -> bool:
+    """
+    Launch a poll in a Zoom meeting.
+
+    Args:
+        meeting_id (str): Zoom meeting ID.
+        poll_id (str): ID of the poll to launch.
+        token (str): Zoom API token.
+
+    Returns:
+        bool: True if successful, False otherwise.
+    """
+    url = f"https://api.zoom.us/v2/meetings/{meeting_id}/polls/{poll_id}/launch"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = requests.post(url, headers=headers)
+        if response.status_code == 200:
+            console.log(f"[green]✅ Poll launched successfully[/]")
+            return True
+        else:
+            console.log(f"[red]❌ Failed to launch poll[/]: {response.status_code} {response.text}")
+            return False
+    except Exception as e:
+        console.log(f"[red]❌ Poll launch error[/]: {e}")
+        return False
 
 def post_poll_to_zoom(title: str, question: str, options: list[str], meeting_id: str, token: str) -> bool:
     """
@@ -184,7 +213,11 @@ def post_poll_to_zoom(title: str, question: str, options: list[str], meeting_id:
     try:
         response = requests.post(url, headers=headers, json=payload)
         if response.status_code == 201:
-            console.log(f"[green]✅ Poll posted successfully[/]: {response.json()}")
+            poll_data = response.json()
+            console.log(f"[green]✅ Poll posted successfully[/]: {poll_data}")
+            
+            # For meetings, the poll must be launched manually by the host in the Zoom client.
+            console.log("[yellow]Poll created. Please launch it manually from the Zoom client.[/]")
             return True
         else:
             console.log(f"[red]❌ Zoom API error[/]: {response.status_code} {response.text}")
