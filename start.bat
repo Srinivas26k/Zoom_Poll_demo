@@ -80,12 +80,31 @@ echo.
 
 :: 7) .env setup
 if not exist .env (
-  if exist .env.example (
-    copy .env.example .env >nul
-    echo %YELLOW%Created .env from template. Edit with your Zoom credentials.%RESET%
-  ) else (
-    echo %RED%⚠️ No .env or .env.example found. Create .env manually.%RESET%
-  )
+  echo %YELLOW%No .env file found. Let's set up your Zoom credentials...%RESET%
+  echo.
+  echo %GREEN%========================================================%RESET%
+  echo %GREEN%         🔐 ZOOM API CREDENTIALS SETUP                  %RESET%
+  echo %GREEN%========================================================%RESET%
+  echo.
+  echo Please enter your Zoom API credentials:
+  echo.
+  set /p CLIENT_ID=Zoom Client ID: 
+  set /p CLIENT_SECRET=Zoom Client Secret: 
+  set /p REDIRECT_URI=Redirect URI (default=http://localhost:5000/oauth/callback): 
+  
+  if "!REDIRECT_URI!"=="" set REDIRECT_URI=http://localhost:5000/oauth/callback
+  
+  echo.
+  echo %YELLOW%Writing credentials to .env file...%RESET%
+  
+  echo # Zoom API Credentials > .env
+  echo CLIENT_ID=!CLIENT_ID! >> .env
+  echo CLIENT_SECRET=!CLIENT_SECRET! >> .env
+  echo REDIRECT_URI=!REDIRECT_URI! >> .env
+  echo SECRET_TOKEN=%RANDOM%%RANDOM% >> .env
+  echo LLAMA_HOST=http://localhost:11434 >> .env
+  
+  echo %GREEN%✓ .env file created with your credentials!%RESET%
 ) else (
   echo %GREEN%✓ .env detected.%RESET%
 )
