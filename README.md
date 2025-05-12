@@ -62,10 +62,21 @@ pip install -r requirements.txt
 
 Create a `.env` file and add:
 ```env
-CLIENT_ID=your_zoom_client_id
-CLIENT_SECRET=your_zoom_client_secret
+# OAuth credentials (from your Zoom App)
+# You need to register a Zoom App in the Zoom Developer Portal at https://marketplace.zoom.us/
+CLIENT_ID=
+CLIENT_SECRET=
+# Redirect URI (must match exactly in Zoom App settings)
 REDIRECT_URI=http://localhost:8000/oauth/callback
-OPENAI_API_KEY=your_openai_key
+# Webhook verification tokens (for future use)
+SECRET_TOKEN=
+VERIFICATION_TOKEN=C
+# Ollama host (LLaMA)
+LLAMA_HOST=http://localhost:11434
+# Flask Secret Key for session management
+# Generate a strong random key (e.g., using python -c "import os; print(os.urandom(24).hex())")
+FLASK_SECRET_KEY=
+
 ```
 
 ---
