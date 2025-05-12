@@ -35,7 +35,6 @@ env/
 .coverage
 .pytest_cache/
 .benchmarks/
-test-reports/
 htmlcov/
 .tox/
 .coverage.*
