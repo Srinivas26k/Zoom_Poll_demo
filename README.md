@@ -22,8 +22,8 @@ An automated system that listens to Zoom meetings, transcribes the audio, and ge
 
 1. Clone the repository:
    ```bash
-git clone https://github.com/Srinivas26k/zoom-poll-automator.git
-cd zoom-poll-automator
+   git clone https://github.com/Srinivas26k/zoom-poll-automator.git
+   cd zoom-poll-automator
    ```
 
 2. Create and activate a virtual environment:
