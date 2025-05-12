@@ -3,7 +3,7 @@
 import os, time
 from rich.console import Console
 from audio_capture import record_segment
-from transcribe_whisper import transcribe_segment
+from transcribe_whisper import WhisperTranscriber
 from poller import generate_poll_from_transcript, post_poll_to_zoom
 
 console = Console()
@@ -27,6 +27,8 @@ def run_loop(device, should_stop):
         console.log("[red]❌ Missing ZOOM_TOKEN or MEETING_ID in environment[/]")
         return
 
+    whisper = WhisperTranscriber()
+
     while not should_stop.is_set():
         cycle += 1
         console.log(f"[blue]▶️  Cycle {cycle}[/]")
@@ -39,7 +41,8 @@ def run_loop(device, should_stop):
                 continue
 
             # 2) Transcribe
-            text = transcribe_segment("segment.wav")
+            result = whisper.transcribe_audio("segment.wav")
+            text = result.get("text", "") if isinstance(result, dict) else str(result)
             if not text.strip():
                 console.log("[yellow]⚠️ Empty transcript—skipping poll[/]")
                 time.sleep(5)  # Wait a bit before next cycle

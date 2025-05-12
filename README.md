@@ -40,25 +40,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-4. Create a `.env` file with your configuration:
-```env
-# Zoom API Configuration
-CLIENT_ID=your_zoom_client_id_here
-CLIENT_SECRET=your_zoom_client_secret_here
-REDIRECT_URI=http://localhost:8000/oauth/callback
-
-# Flask Configuration
-FLASK_SECRET_KEY=your_secret_key_here  # Optional: Will be auto-generated if not provided
-VERIFICATION_TOKEN=your_verification_token_here  # Optional: For webhook verification
-
-# Ollama Configuration
-LLAMA_HOST=http://localhost:11434  # Optional: Default Ollama host
-
-# Logging Configuration
-LOG_LEVEL=INFO  # Optional: DEBUG, INFO, WARNING, ERROR, CRITICAL
-```
+4. Create a `.env` file with your configuration (see `.env.example` for template):
 
 ## Usage
+
+### Web Interface
 
 1. Start the web interface:
 ```bash
@@ -85,6 +71,26 @@ python app.py
    - Check the status of each operation
    - View generated polls before they're posted
 
+### CLI Automation
+
+You can also use the CLI entry point:
+```bash
+python run.py --test  # Run a single test cycle
+python run.py         # Run automation loop
+```
+
+### Cross-Platform Setup/Start Scripts
+
+- On **Windows**: Use `setup.bat` and `start.bat`
+- On **Linux/macOS**: Use `setup.sh` and `start.sh`
+
+## Running Tests
+
+Run all tests with:
+```bash
+python -m pytest tests/
+```
+
 ## Troubleshooting
 
 ### Common Issues
@@ -106,7 +112,7 @@ python app.py
 
 ### Logs
 
-- Application logs are stored in `app.log`
+- Application logs are stored in `app.log` and `logs/`
 - Check the web interface for real-time logs
 - Use `LOG_LEVEL=DEBUG` in .env for detailed logging
 
@@ -123,13 +129,10 @@ zoom-poll-automator/
 ├── config.py          # Configuration management
 ├── run.py             # CLI entry point
 ├── requirements.txt   # Python dependencies
+├── setup.bat / setup.sh  # Setup scripts (Windows/Linux)
+├── start.bat / start.sh  # Start scripts (Windows/Linux)
+├── tests/             # Pytest test suite
 └── templates/         # Web interface templates
-```
-
-### Running Tests
-
-```bash
-python -m pytest tests/
 ```
 
 ## Contributing

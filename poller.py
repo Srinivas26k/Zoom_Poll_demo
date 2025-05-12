@@ -8,6 +8,8 @@ import config
 from poll_prompt import POLL_PROMPT
 
 console = Console()
+if not hasattr(config, "LLAMA_HOST"):
+    config.setup_config()
 llama = OpenAI(base_url=config.LLAMA_HOST, api_key="ollama")
 
 def extract_json_from_text(text):

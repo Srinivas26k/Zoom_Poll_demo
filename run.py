@@ -4,6 +4,7 @@ import shutil
 import logging
 import signal
 import sys
+import argparse
 from pathlib import Path
 from typing import Optional, Tuple, List
 from dotenv import load_dotenv
@@ -17,20 +18,32 @@ from transcribe_whisper import WhisperTranscriber
 from poller import generate_poll_from_transcript, post_poll_to_zoom
 import config
 
+# Create logs directory
+os.makedirs("logs", exist_ok=True)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[RichHandler(rich_tracebacks=True)]
+    handlers=[
+        RichHandler(rich_tracebacks=True),
+        logging.FileHandler("logs/run.log")
+    ]
 )
 logger = logging.getLogger("zoom_poll_automator")
 console = Console()
 
+config.setup_config()
+
 class ZoomPollAutomator:
-    def __init__(self):
+    def __init__(self, test_mode: bool = False):
         self.running = True
         self.whisper = WhisperTranscriber()
         self.setup_signal_handlers()
+        self.test_mode = test_mode
+        self.retry_count = 0
+        self.max_retry_count = 5
+        self.base_delay = 5  # Base delay in seconds
         
     def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown."""
@@ -90,6 +103,20 @@ class ZoomPollAutomator:
         except Exception as e:
             logger.error(f"Error cleaning up files: {str(e)}")
     
+    def calculate_backoff_delay(self) -> float:
+        """Calculate exponential backoff delay based on retry count."""
+        if self.retry_count == 0:
+            return self.base_delay
+        
+        # Exponential backoff with jitter
+        import random
+        max_delay = min(60, self.base_delay * (2 ** self.retry_count))  # Cap at 60 seconds
+        jitter = random.uniform(0.8, 1.2)  # Add 20% jitter
+        delay = max_delay * jitter
+        
+        logger.info(f"Backoff delay: {delay:.2f} seconds (retry {self.retry_count}/{self.max_retry_count})")
+        return delay
+    
     def process_cycle(self, meeting_id: str, zoom_token: str, segment_duration: int) -> bool:
         """Process one cycle of recording, transcribing, and posting poll."""
         try:
@@ -107,8 +134,9 @@ class ZoomPollAutomator:
 
                 # 2) Transcribe
                 progress.add_task("🧠 Transcribing with Whisper...", total=None)
-                transcript = self.whisper.transcribe_audio("segment.wav")
-                if not transcript.strip():
+                transcript_result = self.whisper.transcribe_audio("segment.wav")
+                transcript = transcript_result.get("text", "").strip()
+                if not transcript:
                     logger.warning("No speech detected in audio")
                     return False
 
@@ -129,15 +157,17 @@ class ZoomPollAutomator:
                 if success:
                     logger.info("Poll posted successfully")
                     console.print("[green]✅ Poll posted successfully![/]")
+                    self.retry_count = 0  # Reset retry count on success
+                    return True
                 else:
                     logger.error("Failed to post poll to Zoom")
                     console.print("[red]❌ Failed to post poll to Zoom[/]")
+                    self.retry_count += 1
                     return False
-                
-                return True
                 
         except Exception as e:
             logger.error(f"Error in process cycle: {str(e)}", exc_info=True)
+            self.retry_count += 1
             return False
     
     def run(self):
@@ -161,11 +191,23 @@ class ZoomPollAutomator:
                 
                 if success:
                     cycle += 1
+                    if self.test_mode:
+                        logger.info("Test mode: Exiting after successful cycle")
+                        console.print("\n[green]Test cycle completed successfully. Exiting.[/green]")
+                        break
+                    
                     console.print(f"\n[dim]Completed cycle {cycle}. Waiting 5s before next cycle...[/dim]")
                     time.sleep(5)
                 else:
-                    console.print("\n[yellow]Waiting 5s before retrying...[/yellow]")
-                    time.sleep(5)
+                    delay = self.calculate_backoff_delay()
+                    console.print(f"\n[yellow]Waiting {delay:.1f}s before retrying...[/yellow]")
+                    
+                    if self.retry_count >= self.max_retry_count:
+                        logger.error(f"Maximum retry count reached ({self.max_retry_count}). Stopping.")
+                        console.print("\n[red]Maximum retry count reached. Stopping automation.[/red]")
+                        break
+                        
+                    time.sleep(delay)
 
         except Exception as e:
             logger.error(f"Unexpected error in main loop: {str(e)}", exc_info=True)
@@ -175,10 +217,23 @@ class ZoomPollAutomator:
             self.whisper.cleanup()
             console.print("\n[bold red]Stopped. Goodbye![/bold red]")
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Zoom Poll Automator")
+    parser.add_argument("--test", action="store_true", help="Run a single test cycle and exit")
+    parser.add_argument("--duration", type=int, help="Recording duration in seconds")
+    return parser.parse_args()
+
 def main():
     """Entry point for the application."""
     try:
-        automator = ZoomPollAutomator()
+        args = parse_args()
+        
+        # Override environment variables if provided as arguments
+        if args.duration:
+            os.environ["SEGMENT_DURATION"] = str(args.duration)
+            
+        automator = ZoomPollAutomator(test_mode=args.test)
         automator.run()
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}", exc_info=True)

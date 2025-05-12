@@ -6,6 +6,7 @@ import torch
 import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any
+from functools import lru_cache
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -17,15 +18,19 @@ class WhisperTranscriber:
         self.model_name = model_name
         self.model = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.temp_file_prefix = "zoom_audio_"
         logger.info(f"Using device: {self.device}")
         
+    @lru_cache(maxsize=1)
     def load_model(self) -> None:
         """Load the Whisper model if not already loaded."""
         if self.model is None:
             try:
+                start_time = time.time()
                 logger.info(f"Loading Whisper model: {self.model_name}")
                 self.model = whisper.load_model(self.model_name, device=self.device)
-                logger.info("Model loaded successfully")
+                load_time = time.time() - start_time
+                logger.info(f"Model loaded successfully in {load_time:.2f} seconds")
             except Exception as e:
                 logger.error(f"Failed to load Whisper model: {str(e)}")
                 raise
@@ -45,6 +50,7 @@ class WhisperTranscriber:
             
         try:
             self.load_model()
+            start_time = time.time()
             logger.info(f"Transcribing audio file: {audio_path}")
             
             # Transcribe the audio
@@ -54,23 +60,32 @@ class WhisperTranscriber:
                 fp16=False if self.device == "cpu" else True
             )
             
-            logger.info("Transcription completed successfully")
+            transcription_time = time.time() - start_time
+            logger.info(f"Transcription completed in {transcription_time:.2f} seconds")
             return result
             
         except Exception as e:
             logger.error(f"Error during transcription: {str(e)}")
             raise
     
+    def get_temp_file_path(self, suffix: str = ".wav") -> str:
+        """Get a unique temporary file path."""
+        temp_dir = tempfile.gettempdir()
+        timestamp = int(time.time())
+        return str(Path(temp_dir) / f"{self.temp_file_prefix}{timestamp}{suffix}")
+    
     def cleanup(self) -> None:
         """Clean up resources."""
         if self.model is not None:
+            logger.info("Cleaning up model resources")
             del self.model
-            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logger.info("CUDA cache cleared")
             self.model = None
             logger.info("Model resources cleaned up")
 
+# For backward compatibility
 def get_temp_file_path() -> str:
-    """Get a unique temporary file path."""
-    temp_dir = tempfile.gettempdir()
-    timestamp = int(time.time())
-    return str(Path(temp_dir) / f"zoom_audio_{timestamp}.wav")
+    """Get a unique temporary file path (legacy function)."""
+    return WhisperTranscriber().get_temp_file_path()

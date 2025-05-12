@@ -60,6 +60,8 @@ AUTH_URL = "https://zoom.us/oauth/authorize"
 TOKEN_URL = "https://zoom.us/oauth/token"
 API_BASE_URL = "https://api.zoom.us/v2"
 
+config.setup_config()
+
 def get_device_by_name(device_name):
     """Get the full device object by name"""
     try:

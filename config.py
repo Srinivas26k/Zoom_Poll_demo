@@ -1,9 +1,11 @@
 # config.py
 import os
 import logging
+import shutil
 from pathlib import Path
 from dotenv import load_dotenv
 from typing import Dict, Any
+from functools import lru_cache
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,6 +17,22 @@ def load_env_file(env_path: str) -> bool:
         load_dotenv(env_path)
         logger.info(f"Loaded environment from {env_path}")
         return True
+    return False
+
+def create_env_from_example():
+    """Create .env file from .env.example if it doesn't exist."""
+    env_path = Path(".env")
+    example_path = Path(".env.example")
+    
+    if not env_path.exists() and example_path.exists():
+        try:
+            shutil.copy(example_path, env_path)
+            logger.info(f"Created .env from .env.example")
+            load_dotenv()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create .env from example: {str(e)}")
+            return False
     return False
 
 def validate_config() -> Dict[str, Any]:
@@ -45,8 +63,11 @@ def setup_config() -> None:
     """Setup configuration with fallback to .env.example."""
     # Try loading .env first
     if not load_env_file(".env"):
-        # If .env doesn't exist, try .env.example
-        if load_env_file(".env.example"):
+        # If .env doesn't exist, try creating from .env.example
+        if create_env_from_example():
+            logger.info("Created and loaded .env from .env.example")
+        # If still can't create, try loading .env.example directly
+        elif load_env_file(".env.example"):
             logger.warning("Using .env.example as .env file not found")
         else:
             logger.error("Neither .env nor .env.example found")
@@ -72,10 +93,3 @@ def setup_config() -> None:
     LLAMA_HOST_BASE = os.getenv("LLAMA_HOST", "http://localhost:11434").rstrip('/')
     LLAMA_HOST = f"{LLAMA_HOST_BASE}/v1"  # For OpenAI client compatibility
     OLLAMA_API = LLAMA_HOST_BASE  # For direct Ollama API calls
-
-# Initialize configuration
-try:
-    setup_config()
-except Exception as e:
-    logger.error(f"Failed to setup configuration: {str(e)}")
-    raise
