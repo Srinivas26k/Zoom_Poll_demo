@@ -6,12 +6,22 @@ import sys
 import subprocess
 import requests
 import time
+import venv
+import logging
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from dotenv import load_dotenv
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger("setup")
 console = Console()
 
 def check_ollama():
@@ -167,42 +177,196 @@ def setup_env_file():
     console.print("[green]✓ .env file has been created/updated.[/]")
     return True
 
-def main():
-    """Main setup function"""
-    console.print(Panel("[bold]Zoom Poll Automator Setup[/]", style="blue"))
+class SetupWizard:
+    def __init__(self):
+        self.project_root = Path(__file__).parent
+        self.venv_path = self.project_root / "venv"
+        self.env_file = self.project_root / ".env"
+        self.requirements_file = self.project_root / "requirements.txt"
     
-    # Check for Ollama
-    ollama_running = check_ollama()
-    if not ollama_running:
-        if Confirm.ask("Would you like to start Ollama server now?"):
-            start_ollama()
-            # Check again after trying to start
-            ollama_running = check_ollama()
+    def check_python_version(self) -> bool:
+        """Check if Python version meets requirements."""
+        required_version = (3, 8)
+        current_version = sys.version_info[:2]
+        
+        if current_version < required_version:
+            console.print(f"[red]Python {required_version[0]}.{required_version[1]} or higher is required. "
+                         f"Current version: {current_version[0]}.{current_version[1]}[/]")
+            return False
+        return True
+    
+    def create_virtual_environment(self) -> bool:
+        """Create a Python virtual environment."""
+        try:
+            if self.venv_path.exists():
+                if not Confirm.ask("Virtual environment already exists. Recreate?"):
+                    return True
+                import shutil
+                shutil.rmtree(self.venv_path)
             
-    # Pull llama3.2 model if needed
-    if ollama_running and not any("llama3.2" in model.get("name", "") 
-                                 for model in requests.get("http://localhost:11434/api/tags").json().get("models", [])):
-        if Confirm.ask("llama3.2 model is required. Would you like to download it now?"):
-            pull_llama_model()
+            console.print("Creating virtual environment...")
+            venv.create(self.venv_path, with_pip=True)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create virtual environment: {str(e)}")
+            return False
     
-    # Check/download Whisper model
-    download_whisper_model()
+    def install_dependencies(self) -> bool:
+        """Install required Python packages."""
+        try:
+            console.print("Installing dependencies...")
+            
+            # Determine the pip executable path
+            if sys.platform == "win32":
+                pip_path = self.venv_path / "Scripts" / "pip.exe"
+            else:
+                pip_path = self.venv_path / "bin" / "pip"
+            
+            # Upgrade pip
+            subprocess.run([str(pip_path), "install", "--upgrade", "pip"], check=True)
+            
+            # Install requirements
+            subprocess.run([str(pip_path), "install", "-r", str(self.requirements_file)], check=True)
+            
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to install dependencies: {str(e)}")
+            return False
     
-    # Setup environment
-    setup_env_file()
+    def check_ffmpeg(self) -> bool:
+        """Check if FFmpeg is installed."""
+        try:
+            subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            console.print("[yellow]FFmpeg not found. Please install FFmpeg:[/]")
+            console.print("  - Windows: Download from https://ffmpeg.org/download.html")
+            console.print("  - macOS: brew install ffmpeg")
+            console.print("  - Linux: sudo apt install ffmpeg")
+            return False
     
-    console.print("\n[bold green]✓ Setup completed! You can now run the application.[/]")
+    def check_ollama(self) -> bool:
+        """Check if Ollama is installed and running."""
+        try:
+            subprocess.run(["ollama", "list"], capture_output=True, check=True)
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            console.print("[yellow]Ollama not found. Please install Ollama:[/]")
+            console.print("  - Download from https://ollama.ai/download")
+            console.print("  - After installation, run 'ollama serve' in a separate terminal")
+            return False
     
-    # Instruct the user how to run the app
-    console.print(Panel(
-        "The setup is now complete! To start the application:\n\n"
-        "1. Make sure Ollama is running in another terminal ('ollama serve')\n"
-        "2. Run the batch file: [cyan]start_poll_automator.bat[/]\n"
-        "3. Follow the instructions in the web browser",
-        title="Next Steps"
-    ))
+    def create_env_file(self) -> bool:
+        """Create .env file with user configuration."""
+        try:
+            if self.env_file.exists():
+                if not Confirm.ask(".env file already exists. Overwrite?"):
+                    return True
+            
+            console.print("\n[bold]Zoom API Configuration[/bold]")
+            client_id = Prompt.ask("Enter your Zoom Client ID")
+            client_secret = Prompt.ask("Enter your Zoom Client Secret")
+            
+            console.print("\n[bold]Optional Configuration[/bold]")
+            llama_host = Prompt.ask(
+                "Enter Ollama host URL",
+                default="http://localhost:11434"
+            )
+            log_level = Prompt.ask(
+                "Enter log level",
+                choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                default="INFO"
+            )
+            
+            # Write .env file
+            env_content = f"""# Zoom API Configuration
+CLIENT_ID={client_id}
+CLIENT_SECRET={client_secret}
+REDIRECT_URI=http://localhost:8000/oauth/callback
+
+# Ollama Configuration
+LLAMA_HOST={llama_host}
+
+# Logging Configuration
+LOG_LEVEL={log_level}
+"""
+            self.env_file.write_text(env_content)
+            console.print("[green]✓ Created .env file[/]")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to create .env file: {str(e)}")
+            return False
     
-    return 0
+    def run(self) -> bool:
+        """Run the setup wizard."""
+        console.print("[bold blue]Zoom Poll Automator Setup Wizard[/bold blue]")
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            # Check Python version
+            task = progress.add_task("Checking Python version...", total=None)
+            if not self.check_python_version():
+                return False
+            progress.update(task, completed=True)
+            
+            # Create virtual environment
+            task = progress.add_task("Creating virtual environment...", total=None)
+            if not self.create_virtual_environment():
+                return False
+            progress.update(task, completed=True)
+            
+            # Install dependencies
+            task = progress.add_task("Installing dependencies...", total=None)
+            if not self.install_dependencies():
+                return False
+            progress.update(task, completed=True)
+            
+            # Check FFmpeg
+            task = progress.add_task("Checking FFmpeg...", total=None)
+            if not self.check_ffmpeg():
+                return False
+            progress.update(task, completed=True)
+            
+            # Check Ollama
+            task = progress.add_task("Checking Ollama...", total=None)
+            if not self.check_ollama():
+                return False
+            progress.update(task, completed=True)
+            
+            # Create .env file
+            task = progress.add_task("Creating configuration...", total=None)
+            if not self.create_env_file():
+                return False
+            progress.update(task, completed=True)
+        
+        console.print("\n[bold green]✓ Setup completed successfully![/bold green]")
+        console.print("\nTo start the application:")
+        console.print("1. Activate the virtual environment:")
+        if sys.platform == "win32":
+            console.print("   venv\\Scripts\\activate")
+        else:
+            console.print("   source venv/bin/activate")
+        console.print("2. Run the application:")
+        console.print("   python app.py")
+        
+        return True
+
+def main():
+    """Entry point for the setup script."""
+    try:
+        wizard = SetupWizard()
+        success = wizard.run()
+        sys.exit(0 if success else 1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Setup cancelled by user[/yellow]")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Setup failed: {str(e)}", exc_info=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

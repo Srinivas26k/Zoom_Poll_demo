@@ -17,11 +17,14 @@ import atexit
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(message)s",
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     datefmt="[%X]",
-    handlers=[RichHandler(rich_tracebacks=True)]
+    handlers=[
+        RichHandler(rich_tracebacks=True),
+        logging.FileHandler("app.log")
+    ]
 )
-log = logging.getLogger("rich")
+log = logging.getLogger("zoom_poll_app")
 console = Console()
 
 app = Flask(__name__)
@@ -98,6 +101,7 @@ def is_token_valid():
 def refresh_access_token():
     """Refresh the access token using refresh token"""
     if 'refresh_token' not in session:
+        log.warning("No refresh token available")
         return False
     
     try:
@@ -115,9 +119,13 @@ def refresh_access_token():
         session['access_token'] = token_info['access_token']
         session['refresh_token'] = token_info.get('refresh_token')
         session['token_expires_at'] = time.time() + token_info.get('expires_in', 3600)
+        log.info("Successfully refreshed access token")
         return True
+    except requests.exceptions.RequestException as e:
+        log.error(f"Network error refreshing token: {str(e)}")
+        return False
     except Exception as e:
-        log.error(f"Error refreshing token: {str(e)}")
+        log.error(f"Unexpected error refreshing token: {str(e)}", exc_info=True)
         return False
 
 @app.before_request
@@ -164,47 +172,50 @@ def authorize():
 
 @app.route("/oauth/callback")
 def oauth_callback():
-    code = request.args.get("code")
-    error = request.args.get("error")
-    
-    if error:
-        error_description = request.args.get("error_description", "Unknown error")
-        console.log(f"[red]OAuth error: {error} - {error_description}[/]")
-        return render_template("error.html", error=f"OAuth error: {error_description}")
-        
-    if not code:
-        return render_template("error.html", error="No authorization code returned")
-
-    # swap code for token
-    token_url = "https://zoom.us/oauth/token"
-    creds = f"{config.CLIENT_ID}:{config.CLIENT_SECRET}".encode()
-    auth_header = base64.b64encode(creds).decode()
-    headers = {
-        "Authorization": f"Basic {auth_header}",
-        "Content-Type":  "application/x-www-form-urlencoded"
-    }
-    data = {
-        "grant_type":   "authorization_code",
-        "code":         code,
-        "redirect_uri": config.REDIRECT_URI
-    }
-    
     try:
+        code = request.args.get("code")
+        error = request.args.get("error")
+        
+        if error:
+            error_description = request.args.get("error_description", "Unknown error")
+            log.error(f"OAuth error: {error} - {error_description}")
+            return render_template("error.html", error=f"OAuth error: {error_description}")
+            
+        if not code:
+            log.error("No authorization code returned")
+            return render_template("error.html", error="No authorization code returned")
+
+        # swap code for token
+        token_url = "https://zoom.us/oauth/token"
+        creds = f"{config.CLIENT_ID}:{config.CLIENT_SECRET}".encode()
+        auth_header = base64.b64encode(creds).decode()
+        headers = {
+            "Authorization": f"Basic {auth_header}",
+            "Content-Type":  "application/x-www-form-urlencoded"
+        }
+        data = {
+            "grant_type":   "authorization_code",
+            "code":         code,
+            "redirect_uri": config.REDIRECT_URI
+        }
+        
         r = requests.post(token_url, headers=headers, data=data)
-        if r.ok:
-            token_data = r.json()
-            session["access_token"] = token_data["access_token"]
-            session["refresh_token"] = token_data.get("refresh_token")
-            session["token_expires_at"] = time.time() + token_data.get("expires_in", 3600)
-            console.log("[green]✅ Obtained Zoom access token[/]")
-            return redirect(url_for("setup"))
-        else:
-            error_msg = f"Token error: {r.status_code} - {r.text}"
-            console.log(f"[red]{error_msg}[/]")
-            return render_template("error.html", error=error_msg)
+        r.raise_for_status()  # Raise exception for non-200 status codes
+        
+        token_data = r.json()
+        session["access_token"] = token_data["access_token"]
+        session["refresh_token"] = token_data.get("refresh_token")
+        session["token_expires_at"] = time.time() + token_data.get("expires_in", 3600)
+        log.info("Successfully obtained Zoom access token")
+        return redirect(url_for("setup"))
+        
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Network error during token exchange: {str(e)}"
+        log.error(error_msg)
+        return render_template("error.html", error=error_msg)
     except Exception as e:
-        error_msg = f"Error during token exchange: {str(e)}"
-        console.log(f"[red]{error_msg}[/]")
+        error_msg = f"Unexpected error during token exchange: {str(e)}"
+        log.error(error_msg, exc_info=True)
         return render_template("error.html", error=error_msg)
 
 @app.route("/logout")
@@ -295,6 +306,15 @@ def stop():
             console.log("[green]Automation thread stopped successfully[/]")
         except Exception as e:
             console.log(f"[yellow]Warning when stopping thread: {str(e)}[/]")
+    
+    # Properly shutdown the Flask server
+    try:
+        func = request.environ.get('werkzeug.server.shutdown')
+        if func is None:
+            raise RuntimeError('Not running with the Werkzeug Server')
+        func()
+    except Exception as e:
+        console.log(f"[yellow]Warning when shutting down server: {str(e)}[/]")
             
     flash("Automation stopped successfully", "success")
     return redirect(url_for("setup"))
@@ -310,6 +330,12 @@ def cleanup_on_exit():
         except:
             # Ignore exceptions during shutdown
             pass
+    
+    # Properly shutdown Flask server
+    func = request.environ.get('werkzeug.server.shutdown')
+    if func is None:
+        raise RuntimeError('Not running with the Werkzeug Server')
+    func()
 
 # Register the cleanup function to run on application exit
 atexit.register(cleanup_on_exit)
@@ -343,7 +369,23 @@ def open_browser():
     """Open the default web browser to the application URL"""
     webbrowser.open('http://localhost:8000')
 
+@app.errorhandler(Exception)
+def handle_error(error):
+    """Global error handler for all unhandled exceptions."""
+    error_msg = str(error)
+    log.error(f"Unhandled error: {error_msg}", exc_info=True)
+    return render_template("error.html", error=error_msg), 500
+
 if __name__ == "__main__":
     # Open browser in a separate thread
     threading.Thread(target=open_browser).start()
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    
+    # Run Flask with proper shutdown handling
+    try:
+        app.run(host="0.0.0.0", port=8000, debug=True, use_reloader=False)
+    except KeyboardInterrupt:
+        print("\nShutting down gracefully...")
+        cleanup_on_exit()
+    except Exception as e:
+        print(f"\nError occurred: {e}")
+        cleanup_on_exit()
