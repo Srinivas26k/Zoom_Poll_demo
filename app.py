@@ -5,7 +5,7 @@ import requests, base64, threading, os, time, webbrowser, secrets
 from rich.console import Console
 from run_loop import run_loop
 import config
-from audio_capture import list_audio_devices
+from audio_capture import list_audio_devices, AudioDevice
 import sys
 from urllib.parse import urlencode, quote
 from dotenv import load_dotenv
@@ -242,7 +242,9 @@ def setup():
         devices = list_audio_devices()
         device_names = []
         for device in devices:
-            if isinstance(device, dict) and device.get('name'):
+            if isinstance(device, AudioDevice):
+                device_names.append(str(device))
+            elif isinstance(device, dict) and device.get('name'):
                 device_names.append(device.get('name'))
         
         console.log(f"[blue]Debug: Found {len(device_names)} audio devices[/]")
@@ -329,18 +331,17 @@ def cleanup_on_exit():
         should_stop.set()
         try:
             automation_thread.join(timeout=1)
-        except:
+        except Exception:
             # Ignore exceptions during shutdown
             pass
-    
-    # Properly shutdown Flask server
-    func = request.environ.get('werkzeug.server.shutdown')
-    if func is None:
-        raise RuntimeError('Not running with the Werkzeug Server')
-    func()
+    console.log("[green]Cleanup complete. Goodbye![/]")
 
 # Register the cleanup function to run on application exit
 atexit.register(cleanup_on_exit)
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204  # Return no content for favicon requests
 
 @app.route("/health")
 def health_check():

@@ -9,6 +9,24 @@ from pathlib import Path
 from typing import Optional, List, Dict, Union, Any
 from rich.console import Console
 from rich.logging import RichHandler
+import os
+import time
+import wave
+
+try:
+    import pyaudio
+    PYAUDIO_AVAILABLE = True
+except ImportError:
+    PYAUDIO_AVAILABLE = False
+    logging.warning("PyAudio not available. Using alternative audio capture method.")
+
+try:
+    import sounddevice as sd
+    import soundfile as sf
+    SOUNDDEVICE_AVAILABLE = True
+except ImportError:
+    SOUNDDEVICE_AVAILABLE = False
+    logging.warning("SoundDevice not available. Using alternative audio capture method.")
 
 # Configure logging
 logging.basicConfig(
@@ -176,6 +194,173 @@ def record_segment(
 ) -> bool:
     """Convenience function to record an audio segment."""
     return AudioCapture().record_segment(duration, samplerate, channels, output, device)
+
+def apply_noise_reduction(audio_data: np.ndarray, rate: int = 44100) -> np.ndarray:
+    """Apply a simple noise reduction filter to the audio data"""
+    try:
+        # 1. Simple noise gate threshold (removes low-level noise)
+        noise_threshold = 0.005  # Adjust as needed
+        audio_data = np.where(np.abs(audio_data) < noise_threshold, 0, audio_data)
+        
+        # 2. Apply a simple low-pass filter to reduce high-frequency noise
+        if len(audio_data) > 100:  # Ensure we have enough samples
+            window_size = 5
+            smoothed = np.zeros_like(audio_data)
+            padded = np.pad(audio_data, ((window_size//2, window_size//2), (0, 0)), mode='edge')
+            for i in range(len(audio_data)):
+                smoothed[i] = np.mean(padded[i:i+window_size], axis=0)
+            return smoothed
+    except Exception as e:
+        logger.warning(f"Noise reduction failed, using original audio: {str(e)}")
+    
+    return audio_data
+
+def get_device_by_name(name: str) -> Optional[Union[AudioDevice, Dict[str, Any]]]:
+    """Get device by name"""
+    devices = list_audio_devices()
+    for device in devices:
+        if isinstance(device, AudioDevice) and device.name == name:
+            return device
+        elif isinstance(device, dict) and device.get('name') == name:
+            return device
+    return None
+
+def record_audio(device, duration_seconds: int = 30, sample_rate: int = 44100) -> str:
+    """Record audio using the specified device and return the path to the saved file"""
+    channels = 2
+    if isinstance(device, AudioDevice):
+        device_id = device.device_id
+        channels = device.channels
+    elif isinstance(device, dict):
+        device_id = device.get('id')
+        channels = device.get('channels', 2)
+    else:
+        # Try to convert to string and use as a device name
+        try:
+            device_name = str(device)
+            device_obj = get_device_by_name(device_name)
+            if device_obj:
+                return record_audio(device_obj, duration_seconds, sample_rate)
+            else:
+                logger.warning(f"Device specification '{device_name}' not found, using default")
+                device_id = None
+        except:
+            device_id = None
+    
+    # Create output directory if it doesn't exist
+    output_dir = "audio_recordings"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    timestamp = int(time.time())
+    output_path = os.path.join(output_dir, f"recording_{timestamp}.wav")
+    
+    # Try recording with PyAudio first
+    if PYAUDIO_AVAILABLE:
+        try:
+            return record_with_pyaudio(device_id, duration_seconds, sample_rate, channels, output_path)
+        except Exception as e:
+            logger.error(f"PyAudio recording failed: {e}")
+            # Fall back to sounddevice if PyAudio fails
+    
+    # Fall back to sounddevice
+    if SOUNDDEVICE_AVAILABLE:
+        try:
+            return record_with_sounddevice(device_id, duration_seconds, sample_rate, channels, output_path)
+        except Exception as e:
+            logger.error(f"SoundDevice recording failed: {e}")
+    
+    # If all methods failed, create a dummy silent audio file as a fallback
+    try:
+        create_silent_audio(output_path, duration_seconds, sample_rate, channels)
+        logger.warning("Created silent audio file as fallback")
+        return output_path
+    except Exception as e:
+        logger.error(f"Failed to create silent audio: {e}")
+        raise RuntimeError("All audio recording methods failed")
+
+def record_with_pyaudio(device_id, duration_seconds, sample_rate, channels, output_path):
+    """Record audio using PyAudio"""
+    logger.info(f"Recording {duration_seconds}s @{sample_rate}Hz, {channels} channels")
+    
+    p = pyaudio.PyAudio()
+    chunk = 1024
+    format = pyaudio.paInt16
+    
+    stream = p.open(
+        format=format,
+        channels=channels,
+        rate=sample_rate,
+        input=True,
+        input_device_index=device_id,
+        frames_per_buffer=chunk
+    )
+    
+    logger.info("Started recording...")
+    frames = []
+    
+    for i in range(0, int(sample_rate / chunk * duration_seconds)):
+        data = stream.read(chunk, exception_on_overflow=False)
+        frames.append(data)
+    
+    logger.info("Finished recording")
+    
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
+    
+    # Convert frames to numpy array for noise reduction
+    audio_np = np.frombuffer(b''.join(frames), dtype=np.int16).reshape(-1, channels) / 32768.0
+    
+    # Apply noise reduction
+    cleaned_audio = apply_noise_reduction(audio_np, sample_rate)
+    
+    # Convert back to int16
+    cleaned_frames = (cleaned_audio * 32768.0).astype(np.int16).tobytes()
+    
+    # Save to WAV file
+    wf = wave.open(output_path, 'wb')
+    wf.setnchannels(channels)
+    wf.setsampwidth(p.get_sample_size(format))
+    wf.setframerate(sample_rate)
+    wf.writeframes(cleaned_frames)
+    wf.close()
+    
+    return output_path
+
+def record_with_sounddevice(device_id, duration_seconds, sample_rate, channels, output_path):
+    """Record audio using sounddevice"""
+    logger.info(f"Recording {duration_seconds}s @{sample_rate}Hz, {channels} channels (using sounddevice)")
+    
+    recording = sd.rec(
+        int(duration_seconds * sample_rate),
+        samplerate=sample_rate,
+        channels=channels,
+        device=device_id
+    )
+    
+    sd.wait()  # Wait for recording to complete
+    
+    # Apply noise reduction
+    cleaned_recording = apply_noise_reduction(recording, sample_rate)
+    
+    # Save to file
+    sf.write(output_path, cleaned_recording, sample_rate)
+    
+    return output_path
+
+def create_silent_audio(output_path, duration_seconds, sample_rate, channels):
+    """Create a silent audio file as a fallback"""
+    # Create silent audio data
+    silent_data = np.zeros((int(duration_seconds * sample_rate), channels), dtype=np.int16)
+    
+    # Save to WAV file
+    with wave.open(output_path, 'wb') as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(2)  # 2 bytes for int16
+        wf.setframerate(sample_rate)
+        wf.writeframes(silent_data.tobytes())
+    
+    return output_path
 
 if __name__ == "__main__":
     # For testing

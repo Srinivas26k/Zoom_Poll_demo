@@ -6,11 +6,49 @@ from openai import OpenAI
 from rich.console import Console
 import config
 from poll_prompt import POLL_PROMPT
+import os
+import logging
+from typing import Dict, List, Any, Optional
+from typing_extensions import TypedDict
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("poller")
 
 console = Console()
 if not hasattr(config, "LLAMA_HOST"):
     config.setup_config()
 llama = OpenAI(base_url=config.LLAMA_HOST, api_key="ollama")
+
+# Define the post_poll_to_meeting function directly instead of importing it
+def post_poll_to_meeting(meeting_id: str, poll_data: Dict[str, Any], token: str) -> Optional[Dict[str, Any]]:
+    """
+    Post a poll to a Zoom meeting using the Zoom API.
+    
+    Args:
+        meeting_id (str): Zoom meeting ID
+        poll_data (Dict[str, Any]): Poll data to post
+        token (str): Zoom API access token
+        
+    Returns:
+        Optional[Dict[str, Any]]: Response data or None if request failed
+    """
+    url = f"https://api.zoom.us/v2/meetings/{meeting_id}/polls"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=poll_data, timeout=30)
+        if response.status_code in (200, 201):
+            return response.json()
+        else:
+            logger.error(f"Zoom API error: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"Error posting poll to Zoom meeting: {str(e)}")
+        return None
 
 def extract_json_from_text(text):
     """
@@ -228,10 +266,194 @@ def post_poll_to_zoom(title: str, question: str, options: list[str], meeting_id:
         console.log(f"[red]❌ Poll posting error[/]: {e}")
         return False
 
+def is_meaningful_text(text: str) -> bool:
+    """Check if the transcription contains enough meaningful content"""
+    # Remove spaces and check if we have at least 20 characters
+    cleaned_text = text.strip()
+    if len(cleaned_text) < 20:
+        return False
+    
+    # Check if there are at least 4 meaningful words
+    words = [w for w in re.split(r'\W+', cleaned_text) if len(w) > 1]
+    return len(words) >= 4
+
+def clean_text(text: str) -> str:
+    """Clean up transcription text for better poll generation"""
+    # Remove excessive spaces and newlines
+    cleaned = re.sub(r'\s+', ' ', text).strip()
+    # Remove common speech artifacts
+    cleaned = re.sub(r'\b(um|uh|like|you know|I mean)\b', '', cleaned, flags=re.IGNORECASE)
+    return cleaned
+
+def generate_poll_with_llama(transcription: str) -> Optional[Dict[str, Any]]:
+    """Generate a poll based on the meeting transcription using Llama API"""
+    if not is_meaningful_text(transcription):
+        logger.warning("Transcription doesn't contain enough meaningful content for a poll")
+        return None
+    
+    # Clean the transcription
+    cleaned_text = clean_text(transcription)
+    
+    # Extract key topics and themes
+    topics = extract_key_topics(cleaned_text)
+    if not topics:
+        topics = "the current discussion"
+    
+    # Create a structured prompt for the LLM
+    prompt = f"""You are an AI assistant that creates relevant polls for Zoom meetings.
+
+MEETING TRANSCRIPT:
+---
+{cleaned_text}
+---
+
+KEY TOPICS FROM TRANSCRIPT: {topics}
+
+Create ONE poll question with exactly 4 answer options based STRICTLY on the actual content of the meeting transcript above.
+The poll must ONLY address topics that were explicitly discussed in the transcript.
+DO NOT introduce new topics or concepts not mentioned in the transcript.
+
+Your response should be in this JSON format with no other text:
+{{
+  "title": "Brief descriptive title",
+  "question": "A clear question about a specific topic from the transcript?",
+  "options": ["Option 1", "Option 2", "Option 3", "Option 4"]
+}}
+
+Make sure the question and options are directly related to the content in the transcript.
+"""
+    
+    # Prepare the request
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
+    # Check if we're using local or remote Llama
+    if hasattr(config, "LLAMA_HOST") and config.LLAMA_HOST:
+        try:
+            # Local Ollama setup
+            url = f"{config.LLAMA_HOST}/api/generate"
+            data = {
+                "model": "llama3.2",
+                "prompt": prompt,
+                "temperature": 0.7,
+                "max_tokens": 500
+            }
+            
+            logger.info(f"Requesting poll from LLaMA at {url}")
+            response = requests.post(url, headers=headers, json=data, timeout=60)
+            response.raise_for_status()
+            
+            result = response.json()
+            raw_text = result.get('response', '')
+            logger.info(f"📥 LLaMA raw response received ({len(raw_text)} chars)")
+            
+            # Try to extract JSON
+            return extract_json_from_text(raw_text)
+            
+        except Exception as e:
+            logger.error(f"Error generating poll with Llama: {str(e)}")
+            return None
+    else:
+        logger.error("LLAMA_HOST not configured")
+        return None
+
+def extract_key_topics(text: str) -> str:
+    """Extract key topics from the transcript"""
+    # Simple keyword extraction
+    words = re.findall(r'\b\w{4,}\b', text.lower())
+    word_counts = {}
+    for word in words:
+        if word not in ['that', 'this', 'with', 'from', 'have', 'what', 'when', 'where']:
+            word_counts[word] = word_counts.get(word, 0) + 1
+    
+    # Sort by frequency
+    sorted_words = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
+    
+    # Take top 5 keywords
+    top_keywords = [word for word, count in sorted_words[:5]]
+    
+    if top_keywords:
+        return ", ".join(top_keywords)
+    return ""
+
+def format_poll_for_zoom(poll_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Format poll data in the structure expected by Zoom API"""
+    return {
+        "title": poll_data.get("title", "Meeting Poll"),
+        "questions": [
+            {
+                "name": poll_data.get("question", "What do you think?"),
+                "type": "single",
+                "answers": poll_data.get("options", ["Yes", "No", "Maybe", "Not sure"])
+            }
+        ]
+    }
+
+def post_poll(poll_data: Dict[str, Any], meeting_id: str) -> Optional[Dict[str, Any]]:
+    """Post a poll to the Zoom meeting"""
+    if not meeting_id:
+        logger.error("Meeting ID not provided")
+        return None
+    
+    if not poll_data:
+        logger.error("Poll data not provided")
+        return None
+    
+    # Log the poll details
+    title = poll_data.get("title", "No title")
+    question = poll_data.get("question", "No question")
+    options = poll_data.get("options", [])
+    
+    logger.info(f"✅ Successfully generated poll:")
+    logger.info(f"Title: {title}")
+    logger.info(f"Question: {question}")
+    logger.info(f"Options: {options}")
+    
+    # Format for Zoom API
+    zoom_poll = format_poll_for_zoom(poll_data)
+    
+    # Post to Zoom
+    token = os.environ.get("ZOOM_TOKEN")
+    if not token:
+        logger.error("ZOOM_TOKEN environment variable not set")
+        return None
+    
+    logger.info(f"📤 Posting poll to Zoom: {title} - {question}")
+    logger.info(f"Options: {options}")
+    
+    # Use our Zoom API module to post the poll
+    response = post_poll_to_meeting(meeting_id, zoom_poll, token)
+    
+    if response:
+        logger.info(f"✅ Poll posted successfully: {response}")
+        # Notify the user to launch the poll manually (current Zoom API limitation)
+        logger.info("Poll created. Please launch it manually from the Zoom client.")
+        return response
+    else:
+        logger.error("❌ Failed to post poll to Zoom")
+        return None
+
+def generate_and_post_poll(transcription: str, meeting_id: str) -> Optional[Dict[str, Any]]:
+    """Generate a poll based on transcription and post it to the Zoom meeting"""
+    # Generate poll data
+    poll_data = generate_poll_with_llama(transcription)
+    
+    if not poll_data:
+        logger.warning("Could not generate poll from transcription")
+        return None
+    
+    # Post the poll to Zoom
+    return post_poll(poll_data, meeting_id)
+
 if __name__ == "__main__":
-    # Example usage
-    sample_transcript = "Team discussed project timeline. Alice: 'We should extend it.' Bob: 'No, add resources instead.'"
-    title, question, options = generate_poll_from_transcript(sample_transcript)
-    console.log(f"Generated Poll: {title} - {question} - {options}")
-    # Uncomment to test Zoom posting (requires config with meeting_id and token)
-    # post_poll_to_zoom(title, question, options, config.MEETING_ID, config.ZOOM_TOKEN)
+    # Test with sample transcription
+    sample_text = """
+    So I think for the next quarter, we should focus on improving our customer retention rates.
+    The current churn is about 5% monthly, which is too high compared to industry standards.
+    We could implement a new loyalty program, improve our customer support response times,
+    or even consider a discount for annual subscriptions. What do you all think would work best?
+    """
+    
+    poll = generate_poll_with_llama(sample_text)
+    print(json.dumps(poll, indent=2))

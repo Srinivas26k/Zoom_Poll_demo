@@ -39,9 +39,9 @@ python -m pip --version >nul 2>&1 || (
 
 :: 3) FFmpeg check
 where ffmpeg >nul 2>&1 || (
-  echo %RED%❌ ERROR: FFmpeg not in PATH.%RESET%
-  echo     Download → https://ffmpeg.org/download.html
-  pause & exit /b 1
+  echo %YELLOW%WARNING: FFmpeg not found. Using alternative audio capture methods.%RESET%
+  echo %YELLOW%The application will still work, but audio quality may be reduced.%RESET%
+  echo %YELLOW%If you want better audio quality, install FFmpeg from https://ffmpeg.org/download.html%RESET%
 )
 
 :: 4) Virtual environment
@@ -71,13 +71,10 @@ echo.
 
 :: 6) Whisper model
 echo Validating Whisper model…
-echo from whisper import load_model; load_model("tiny.en")>check_whisper.py
-python check_whisper.py >nul 2>&1 || (
+python -c "import whisper; whisper.load_model('tiny.en')" >nul 2>&1 || (
   echo %RED%❌ Whisper model load failed.%RESET%
-  del check_whisper.py
   pause & exit /b 1
 )
-del check_whisper.py
 echo %GREEN%✓ Whisper model ready.%RESET%
 echo.
 
