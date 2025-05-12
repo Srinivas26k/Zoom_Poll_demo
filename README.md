@@ -105,10 +105,10 @@ start.bat             # Windows quick launch
 - `test_poll_generation_performance`
 
 📊 **Performance Benchmark**
-![Performance Chart](test_pass_pie_chart.png)
+![Performance Chart]((https://github.com/Srinivas26k/Zoom_Poll_demo/blob/main/assets/test_pass_pie_chart.png))
 
 📈 **Test Pass Rate**
-![Pass Rate](performance_chart.png)
+![Pass Rate](https://github.com/Srinivas26k/Zoom_Poll_demo/blob/main/assets/performance_chart.png)
 
 ---
 
