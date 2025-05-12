@@ -1,182 +1,80 @@
 #!/bin/bash
 
-# Color definitions
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-WHITE='\033[0;37m'
-RESET='\033[0m'
+# Exit immediately if a command exits with a non-zero status.
+set -e
 
-# Zoom Poll Automator Start Script
-echo -e "${CYAN}=======================================================${RESET}"
-echo -e "${CYAN}           ZOOM POLL AUTOMATOR - STARTING             ${RESET}"
-echo -e "${CYAN}=======================================================${RESET}"
-echo
+# --- Start Script ---
+echo "--- ZOOM POLL AUTOMATOR - INITIAL SETUP ---"
+echo ""
 
-# Function to check if a command exists
-command_exists() {
-    command -v "$1" &> /dev/null
-}
-
-# Check for virtual environment
-echo -e "${BLUE}Checking virtual environment...${RESET}"
-if [[ ! -d "venv" ]]; then
-    echo -e "${RED}ERROR: Virtual environment not found.${RESET}"
-    echo "Please run ./setup.sh first to configure the application."
-    echo
-    read -p "Press Enter to continue..."
-    exit 1
-fi
-
-# Check for .env file
-echo -e "${BLUE}Checking configuration...${RESET}"
-if [[ ! -f ".env" ]]; then
-    if [[ -f ".env.example" ]]; then
-        echo -e "${YELLOW}Warning: .env file not found. Creating from .env.example...${RESET}"
-        cp .env.example .env
-        echo -e "${GREEN}Created .env file from template${RESET}"
-        echo -e "${YELLOW}You should edit the .env file with your Zoom API credentials before continuing.${RESET}"
-        read -p "Do you want to continue anyway? (Y/N): " CONTINUE
-        if [[ "$CONTINUE" != "Y" && "$CONTINUE" != "y" ]]; then
-            exit 1
-        fi
+# 1) Check for Python 3.8+
+echo "[1/3] Checking for Python 3.8+..."
+# Check if python3 command exists and get version
+if command -v python3 &>/dev/null; then
+    PYTHON_CMD="python3"
+else
+    # Fallback to python command if python3 is not found
+    if command -v python &>/dev/null; then
+        PYTHON_CMD="python"
     else
-        echo -e "${RED}ERROR: No .env or .env.example file found.${RESET}"
-        echo "Please run ./setup.sh first to configure the application."
-        echo
-        read -p "Press Enter to continue..."
+        echo "ERROR: Python not found in PATH."
+        echo "      Install Python 3.8+ -> https://www.python.org/downloads/"
         exit 1
     fi
-else
-    echo -e "${GREEN}✓ .env file found${RESET}"
 fi
 
-# Check for Ollama
-echo -e "${BLUE}Checking for Ollama...${RESET}"
-if ! command_exists ollama; then
-    echo -e "${YELLOW}Warning: Ollama not found.${RESET}"
-    echo "This application requires Ollama for LLaMA 3.2 model inference."
-    echo "Please install Ollama from https://ollama.ai/download"
-    read -p "Do you want to continue anyway? (Y/N): " CONTINUE
-    if [[ "$CONTINUE" != "Y" && "$CONTINUE" != "y" ]]; then
-        exit 1
-    fi
-else
-    # Check if Ollama is running
-    if nc -z localhost 11434 2>/dev/null; then
-        echo -e "${GREEN}✓ Ollama is running${RESET}"
-    else
-        echo -e "${YELLOW}Warning: Ollama is installed but not running.${RESET}"
-        
-        read -p "Do you want to start Ollama now? (Y/N): " START_OLLAMA
-        if [[ "$START_OLLAMA" == "Y" || "$START_OLLAMA" == "y" ]]; then
-            echo "Starting Ollama in a new terminal..."
-            
-            # Platform-specific terminal launching
-            if [[ "$(uname)" == "Darwin" ]]; then
-                # macOS
-                osascript -e 'tell app "Terminal" to do script "ollama serve"' &
-            elif command_exists gnome-terminal; then
-                # Linux with GNOME
-                gnome-terminal -- bash -c "ollama serve" &
-            elif command_exists xterm; then
-                # Linux with X11
-                xterm -e "ollama serve" &
-            else
-                # Generic approach
-                echo -e "${YELLOW}Could not launch terminal automatically.${RESET}"
-                echo "Please start Ollama manually by running 'ollama serve' in another terminal."
-                read -p "Do you want to continue anyway? (Y/N): " CONTINUE
-                if [[ "$CONTINUE" != "Y" && "$CONTINUE" != "y" ]]; then
-                    exit 1
-                fi
-            fi
-            
-            echo "Waiting for Ollama to start..."
-            # Try to connect to Ollama for up to 10 seconds
-            for i in {1..10}; do
-                if nc -z localhost 11434 2>/dev/null; then
-                    echo -e "${GREEN}✓ Ollama started successfully${RESET}"
-                    break
-                fi
-                sleep 1
-                if [[ $i -eq 10 ]]; then
-                    echo -e "${YELLOW}Warning: Failed to verify Ollama startup.${RESET}"
-                    echo "Make sure Ollama is running before proceeding."
-                    read -p "Do you want to continue anyway? (Y/N): " CONTINUE
-                    if [[ "$CONTINUE" != "Y" && "$CONTINUE" != "y" ]]; then
-                        exit 1
-                    fi
-                fi
-            done
-        else
-            echo -e "${YELLOW}Continuing without Ollama...${RESET}"
-            echo "The application may not function correctly without Ollama running."
-            read -p "Do you want to continue anyway? (Y/N): " CONTINUE
-            if [[ "$CONTINUE" != "Y" && "$CONTINUE" != "y" ]]; then
-                exit 1
-            fi
-        fi
-    fi
-    
-    # Check for LLaMA 3.2 model if Ollama is running
-    if nc -z localhost 11434 2>/dev/null; then
-        echo -e "${BLUE}Checking for LLaMA 3.2 model...${RESET}"
-        if ! ollama list 2>/dev/null | grep -q "llama3.2"; then
-            echo -e "${YELLOW}Warning: LLaMA 3.2 model not found.${RESET}"
-            
-            read -p "Do you want to download LLaMA 3.2 model now? (Y/N): " DOWNLOAD_MODEL
-            if [[ "$DOWNLOAD_MODEL" == "Y" || "$DOWNLOAD_MODEL" == "y" ]]; then
-                echo "Downloading LLaMA 3.2 model... This may take several minutes."
-                ollama pull llama3.2
-                
-                echo -e "${GREEN}✓ LLaMA 3.2 model download completed${RESET}"
-            else
-                echo -e "${YELLOW}Continuing without LLaMA 3.2 model...${RESET}"
-                echo "The application may not function correctly without the model."
-                read -p "Do you want to continue anyway? (Y/N): " CONTINUE
-                if [[ "$CONTINUE" != "Y" && "$CONTINUE" != "y" ]]; then
-                    exit 1
-                fi
-            fi
-        else
-            echo -e "${GREEN}✓ LLaMA 3.2 model found${RESET}"
-        fi
-    fi
-fi
+# Get Python version and check if it's 3.8 or higher
+PYTHON_VERSION=$($PYTHON_CMD -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+MAJOR_VERSION=$(echo $PYTHON_VERSION | cut -d. -f1)
+MINOR_VERSION=$(echo $PYTHON_VERSION | cut -d. -f2)
 
-# Create logs directory
-echo -e "${BLUE}Creating logs directory...${RESET}"
-mkdir -p logs
-echo -e "${GREEN}✓ Logs directory exists${RESET}"
-
-# Activate virtual environment
-echo -e "${BLUE}Activating virtual environment...${RESET}"
-source venv/bin/activate
-if [[ $? -ne 0 ]]; then
-    echo -e "${RED}ERROR: Failed to activate virtual environment.${RESET}"
-    read -p "Press Enter to continue..."
+if [ "$MAJOR_VERSION" -lt 3 ] || ([ "$MAJOR_VERSION" -eq 3 ] && [ "$MINOR_VERSION" -lt 8 ]); then
+    echo "ERROR: Python 3.8+ required, found $PYTHON_VERSION."
+    echo "      Please update your Python installation."
     exit 1
 fi
-echo -e "${GREEN}✓ Virtual environment activated${RESET}"
+echo "SUCCESS: Python $PYTHON_VERSION OK."
+echo ""
 
-# Start the application
-echo
-echo -e "${GREEN}=======================================================${RESET}"
-echo -e "${GREEN}         STARTING ZOOM POLL AUTOMATOR                 ${RESET}"
-echo -e "${GREEN}=======================================================${RESET}"
-echo
-echo "Press Ctrl+C to stop the application."
-echo
+# 2) Virtual environment
+echo "[2/3] Setting up virtual environment..."
+VENV_DIR="venv"
+# Check if venv directory exists
+if [ ! -d "$VENV_DIR" ]; then
+    echo "Creating virtual environment '$VENV_DIR'..."
+    # Create the virtual environment using the determined Python command
+    $PYTHON_CMD -m venv "$VENV_DIR" || { echo "ERROR: Failed to create venv."; exit 1; }
+    echo "SUCCESS: venv created."
+fi
 
-# Start the Flask application
-python app.py
+echo "Activating virtual environment '$VENV_DIR'..."
+# Source the activation script
+source "$VENV_DIR/bin/activate" || { echo "ERROR: Failed to activate venv."; exit 1; }
+echo "SUCCESS: venv activated ($VIRTUAL_ENV)."
+echo ""
 
-# Deactivate virtual environment on exit
-deactivate
+# 3) Install necessary packages for setup.py (rich, setuptools)
+echo "[3/3] Ensuring setup tools are available..."
+# Install/upgrade pip, rich, and setuptools within the activated venv
+# Redirect output to /dev/null to keep it clean, errors will still show
+pip install --upgrade pip rich setuptools > /dev/null || { echo "ERROR: Failed to install setup tools."; exit 1; }
+echo "SUCCESS: Setup tools installed."
+echo ""
 
-echo
-echo -e "${CYAN}Application stopped. Goodbye!${RESET}" 
+# --- Run setup.py ---
+echo "--- Running setup.py for detailed setup steps (using rich) ---"
+echo ""
+
+# Execute the setup.py script using the python executable in the activated venv
+# setup.py will handle the rest of the setup and rich output
+python setup.py || { echo "ERROR: setup.py failed."; exit 1; }
+
+# setup.py will print instructions on how to run app.py if successful
+
+# Deactivate venv on exit (Happens automatically when the script finishes)
+# deactivate
+
+echo ""
+echo "Initial setup script finished. Refer to setup.py output for next steps."
+echo "Press Enter to close this window…"
+read -p "" # Wait for user input before closing

@@ -89,3 +89,21 @@ class WhisperTranscriber:
 def get_temp_file_path() -> str:
     """Get a unique temporary file path (legacy function)."""
     return WhisperTranscriber().get_temp_file_path()
+
+def transcribe_audio(audio_path: str) -> Dict[str, Any]:
+    """
+    Standalone function to transcribe audio using Whisper.
+    This is a wrapper around WhisperTranscriber for backward compatibility.
+    
+    Args:
+        audio_path: Path to the audio file
+        
+    Returns:
+        Dict containing transcription results
+    """
+    transcriber = WhisperTranscriber()
+    try:
+        result = transcriber.transcribe_audio(audio_path)
+        return result
+    finally:
+        transcriber.cleanup()
