@@ -13,6 +13,7 @@ import os
 import time
 import wave
 import threading
+from scipy import signal
 
 try:
     import pyaudio
@@ -53,6 +54,9 @@ class AudioCapture:
         self.default_channels = 2
         self.target_samplerate = 16000
         self.target_channels = 1
+        self.gain_factor = 1.5  # Increase gain for low voices
+        self.noise_threshold = 0.01  # Noise threshold for voice detection
+        self.voice_boost = 2.0  # Voice boost factor
     
     def list_audio_devices(self) -> List[AudioDevice]:
         """List all available audio input devices and return them as AudioDevice objects."""
@@ -114,6 +118,45 @@ class AudioCapture:
                 return i
         return None
     
+    def apply_voice_enhancement(self, audio_data: np.ndarray, sample_rate: int) -> np.ndarray:
+        """Apply voice enhancement to the audio data."""
+        # Normalize audio
+        audio_data = audio_data / np.max(np.abs(audio_data))
+        
+        # Apply noise gate
+        noise_floor = np.mean(np.abs(audio_data)) * self.noise_threshold
+        audio_data[np.abs(audio_data) < noise_floor] = 0
+        
+        # Apply gain to low voices
+        mask = np.abs(audio_data) < 0.3
+        audio_data[mask] *= self.gain_factor
+        
+        # Apply voice boost
+        audio_data *= self.voice_boost
+        
+        # Normalize again to prevent clipping
+        audio_data = audio_data / np.max(np.abs(audio_data))
+        
+        return audio_data
+    
+    def apply_noise_reduction(self, audio_data: np.ndarray, sample_rate: int) -> np.ndarray:
+        """Apply noise reduction to the audio data."""
+        # Design a high-pass filter to remove low-frequency noise
+        nyquist = sample_rate / 2
+        cutoff = 80  # Hz
+        b, a = signal.butter(4, cutoff/nyquist, btype='high')
+        
+        # Apply the filter
+        filtered_audio = signal.filtfilt(b, a, audio_data)
+        
+        # Apply spectral subtraction for noise reduction
+        noise_spectrum = np.mean(np.abs(filtered_audio[:int(sample_rate*0.1)])**2)
+        audio_spectrum = np.abs(filtered_audio)**2
+        gain = np.maximum(1 - noise_spectrum/audio_spectrum, 0)
+        filtered_audio = filtered_audio * gain
+        
+        return filtered_audio
+    
     def record_segment(
         self,
         duration: int,
@@ -122,19 +165,7 @@ class AudioCapture:
         output: str = "segment.wav",
         device: Optional[Union[str, int, Dict[str, Any]]] = None
     ) -> bool:
-        """
-        Record audio segment and process it for transcription.
-        
-        Args:
-            duration: Recording duration in seconds
-            samplerate: Input sample rate (default: 44100 Hz)
-            channels: Number of input channels (default: 2)
-            output: Output file path
-            device: Audio device specification
-            
-        Returns:
-            bool: True if recording and processing was successful
-        """
+        """Record audio segment with enhanced voice capture."""
         temp_file = "temp_stereo.wav"
         device_index = self.find_device(device)
         
@@ -145,26 +176,35 @@ class AudioCapture:
                 int(duration * samplerate),
                 samplerate=samplerate,
                 channels=channels,
-                dtype="int16",
+                dtype="float32",
                 device=device_index
             )
             sd.wait()
             
             # Save temporary stereo file
-            sf.write(temp_file, audio, samplerate, subtype="PCM_16")
+            sf.write(temp_file, audio, samplerate)
             logger.info("Saved temporary stereo file")
             
             # Process audio for transcription
             data, sr = sf.read(temp_file, dtype="float32")
-            mono = data.mean(axis=1)  # Mix to mono
-            mono16 = librosa.resample(mono, orig_sr=sr, target_sr=self.target_samplerate)
             
-            # Normalize RMS
-            rms = np.sqrt((mono16**2).mean())
-            mono16 = mono16 * (0.1 / (rms + 1e-8))
+            # Convert to mono if stereo
+            if len(data.shape) > 1:
+                mono = data.mean(axis=1)
+            else:
+                mono = data
+            
+            # Apply voice enhancement
+            enhanced_audio = self.apply_voice_enhancement(mono, sr)
+            
+            # Apply noise reduction
+            cleaned_audio = self.apply_noise_reduction(enhanced_audio, sr)
+            
+            # Resample to target rate
+            resampled_audio = librosa.resample(cleaned_audio, orig_sr=sr, target_sr=self.target_samplerate)
             
             # Save final file
-            sf.write(output, mono16, self.target_samplerate, subtype="PCM_16")
+            sf.write(output, resampled_audio, self.target_samplerate, subtype="PCM_16")
             logger.info(f"Saved processed audio to {output}")
             
             return True
