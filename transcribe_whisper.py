@@ -7,19 +7,31 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any
 from functools import lru_cache
+from server_connection import RemoteModelProcessor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class WhisperTranscriber:
-    def __init__(self, model_name: str = "base"):
-        """Initialize the Whisper transcriber with specified model."""
+    def __init__(self, model_name: str = "large", use_remote: bool = True):
+        """Initialize the Whisper transcriber."""
         self.model_name = model_name
+        self.use_remote = use_remote
         self.model = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.temp_file_prefix = "zoom_audio_"
-        logger.info(f"Using device: {self.device}")
+        self.remote_processor = None
+        
+        if use_remote:
+            # Initialize remote processor with your server details
+            self.remote_processor = RemoteModelProcessor(
+                hostname="your-server.com",
+                username="your-username",
+                password="your-password"  # or key_filename="path/to/key"
+            )
+            self.remote_processor.connect()
+        else:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            logger.info(f"Using device: {self.device}")
         
     @lru_cache(maxsize=1)
     def load_model(self) -> None:
@@ -36,34 +48,31 @@ class WhisperTranscriber:
                 raise
     
     def transcribe_audio(self, audio_path: str) -> Dict[str, Any]:
-        """
-        Transcribe audio file using Whisper.
-        
-        Args:
-            audio_path: Path to the audio file
-            
-        Returns:
-            Dict containing transcription results
-        """
+        """Transcribe audio file using Whisper."""
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
             
         try:
-            self.load_model()
-            start_time = time.time()
-            logger.info(f"Transcribing audio file: {audio_path}")
-            
-            # Transcribe the audio
-            result = self.model.transcribe(
-                audio_path,
-                language="en",
-                fp16=False if self.device == "cpu" else True
-            )
-            
-            transcription_time = time.time() - start_time
-            logger.info(f"Transcription completed in {transcription_time:.2f} seconds")
-            return result
-            
+            if self.use_remote:
+                # Use remote Whisper Large model
+                result = self.remote_processor.transcribe_with_whisper_large(audio_path)
+                
+                # Process with DeepSeek if needed
+                if result.get("text"):
+                    deepseek_result = self.remote_processor.process_with_deepseek(result["text"])
+                    result["deepseek_analysis"] = deepseek_result
+                
+                return result
+            else:
+                # Use local model
+                self.load_model()
+                result = self.model.transcribe(
+                    audio_path,
+                    language="en",
+                    fp16=False if self.device == "cpu" else True
+                )
+                return result
+                
         except Exception as e:
             logger.error(f"Error during transcription: {str(e)}")
             raise
@@ -72,18 +81,17 @@ class WhisperTranscriber:
         """Get a unique temporary file path."""
         temp_dir = tempfile.gettempdir()
         timestamp = int(time.time())
-        return str(Path(temp_dir) / f"{self.temp_file_prefix}{timestamp}{suffix}")
+        return str(Path(temp_dir) / f"zoom_audio_{timestamp}{suffix}")
     
     def cleanup(self) -> None:
         """Clean up resources."""
-        if self.model is not None:
-            logger.info("Cleaning up model resources")
+        if self.use_remote and self.remote_processor:
+            self.remote_processor.disconnect()
+        elif self.model is not None:
             del self.model
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-                logger.info("CUDA cache cleared")
             self.model = None
-            logger.info("Model resources cleaned up")
 
 # For backward compatibility
 def get_temp_file_path() -> str:
