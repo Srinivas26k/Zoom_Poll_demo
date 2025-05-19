@@ -1,18 +1,33 @@
 @echo off
-title Zoom Poll Automator Launcher
+echo Starting Zoom Poll Automator...
 
-:: This script launches the main PowerShell startup script (start.ps1)
-:: It is designed to be double-clicked by users.
+REM Check for Python installation
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo Python is not installed or not in PATH
+    echo Please install Python 3.8 or higher
+    pause
+    exit /b 1
+)
 
-echo Launching Zoom Poll Automator setup...
-echo.
+REM Create and activate virtual environment
+if not exist venv (
+    echo Creating virtual environment...
+    python -m venv venv
+)
 
-:: Execute the PowerShell script
-:: -NoProfile: Does not load the current user's PowerShell profile.
-:: -ExecutionPolicy Bypass: Allows the script to run without changing the system's execution policy.
-:: -File: Specifies the script to run.
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0start.ps1"
+call venv\Scripts\activate
 
-echo.
-echo Launcher finished. Refer to the main script window for details.
-pause > nul
+REM Install/upgrade pip and dependencies
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+
+REM Run the application
+echo Starting application...
+python app.py
+
+REM Keep window open on error
+if errorlevel 1 (
+    echo Application stopped with an error
+    pause
+)
