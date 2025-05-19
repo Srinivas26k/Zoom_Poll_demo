@@ -1,5 +1,5 @@
-# app.py
-
+import React, { useState } from 'react';
+import { Plus, Minus } from 'lucide-react';
 from flask import Flask, redirect, url_for, session, request, render_template, flash, jsonify
 import requests, base64, threading, os, time, webbrowser, secrets
 from rich.console import Console
@@ -13,6 +13,17 @@ import logging
 from rich.logging import RichHandler
 from datetime import timedelta
 import atexit
+from flask_socketio import SocketIO, emit
+import queue
+import threading
+import json
+
+# Initialize Socket.IO
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Global queues for communication between threads
+transcription_queue = queue.Queue()
+poll_queue = queue.Queue()
 
 # Configure logging
 logging.basicConfig(
@@ -368,6 +379,69 @@ def started():
         return redirect(url_for("index"))
     return render_template("started.html")
 
+@app.route("/dashboard")
+def dashboard():
+    """Render the dashboard with live transcription and polls."""
+    if not is_token_valid():
+        return redirect(url_for("index"))
+    return render_template("dashboard.html")
+
+@socketio.on('toggle_recording')
+def handle_recording(data):
+    """Handle recording start/stop."""
+    global automation_thread
+    
+    if data.get('recording'):
+        if not automation_thread or not automation_thread.is_alive():
+            should_stop.clear()
+            automation_thread = threading.Thread(
+                target=run_loop_with_queues,
+                args=(should_stop, transcription_queue, poll_queue),
+                daemon=True
+            )
+            automation_thread.start()
+            emit('recording_status', {'status': 'started'})
+    else:
+        if automation_thread and automation_thread.is_alive():
+            should_stop.set()
+            automation_thread.join(timeout=3)
+            emit('recording_status', {'status': 'stopped'})
+
+def run_loop_with_queues(should_stop, trans_queue, poll_queue):
+    """Enhanced run loop that communicates via queues."""
+    device = AudioCapture()
+    whisper = WhisperTranscriber()
+    
+    while not should_stop.is_set():
+        try:
+            # Record audio
+            audio_file = device.record_segment(
+                duration=int(os.getenv("SEGMENT_DURATION", "30")),
+                device="System Audio (All Participants)"
+            )
+            
+            # Transcribe
+            result = whisper.transcribe_audio(audio_file)
+            text = result.get("text", "").strip()
+            
+            if text:
+                # Send transcription via Socket.IO
+                socketio.emit('transcription', {'text': text})
+                
+                # Generate and send poll if appropriate
+                poll = generate_poll_from_transcript(text)
+                if poll:
+                    socketio.emit('poll_generated', poll)
+            
+            # Cleanup
+            if os.path.exists(audio_file):
+                os.remove(audio_file)
+                
+        except Exception as e:
+            logger.error(f"Error in run loop: {str(e)}")
+            socketio.emit('error', {'message': str(e)})
+            time.sleep(5)
+
 def open_browser():
     """Open the default web browser to the application URL"""
     webbrowser.open('http://localhost:8000')
@@ -381,14 +455,7 @@ def handle_error(error):
 
 if __name__ == "__main__":
     # Open browser in a separate thread
-    threading.Thread(target=open_browser).start()
+    threading.Thread(target=lambda: webbrowser.open('http://localhost:8000')).start()
     
-    # Run Flask with proper shutdown handling
-    try:
-        app.run(host="0.0.0.0", port=8000, debug=True, use_reloader=False)
-    except KeyboardInterrupt:
-        print("\nShutting down gracefully...")
-        cleanup_on_exit()
-    except Exception as e:
-        print(f"\nError occurred: {e}")
-        cleanup_on_exit()
+    # Run with Socket.IO
+    socketio.run(app, host="0.0.0.0", port=8000, debug=True, use_reloader=False)
