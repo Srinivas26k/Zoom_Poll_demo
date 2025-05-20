@@ -2,9 +2,9 @@ name: Python Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [ feature/automation-polish ]
   pull_request:
-    branches: [ main ]
+    branches: [ feature/automation-polish ]
 
 jobs:
   test:
