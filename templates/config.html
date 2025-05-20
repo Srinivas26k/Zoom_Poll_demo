@@ -1,0 +1,26 @@
+<!-- templates\config.html -->
+<!DOCTYPE html>
+<html>
+<head><title>Configure Automation</title></head>
+<body>
+  <h1>Configure Poll Automation</h1>
+  <form method="post">
+    <p>
+      <label>Meeting ID:
+        <input name="meeting_id" required>
+      </label>
+    </p>
+    <p>
+      <label>Segment duration (sec):
+        <input name="segment_duration" value="60" required>
+      </label>
+    </p>
+    <p>
+      <label>Audio device name:
+        <input name="audio_device" value="Stereo Mix (Realtek(R) Audio)" required>
+      </label>
+    </p>
+    <button type="submit">Start Automation</button>
+  </form>
+</body>
+</html>

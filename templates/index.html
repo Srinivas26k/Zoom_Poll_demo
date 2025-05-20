@@ -1,0 +1,158 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Zoom Poll Automator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        .header h1 {
+            color: #2D8CFF;
+            margin: 0;
+            font-size: 2.5em;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #2D8CFF;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            margin: 5px;
+            transition: all 0.3s ease;
+            font-weight: bold;
+            text-align: center;
+            min-width: 200px;
+        }
+        .button:hover {
+            background: #2681F2;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .button.logout {
+            background: #dc3545;
+        }
+        .button.logout:hover {
+            background: #c82333;
+        }
+        .button.setup {
+            background: #28a745;
+            font-size: 1.2em;
+            padding: 15px 30px;
+        }
+        .button.setup:hover {
+            background: #218838;
+        }
+        .status {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            border-left: 4px solid;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border-left-color: #28a745;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left-color: #dc3545;
+        }
+        .nav {
+            margin: 30px 0;
+            text-align: center;
+        }
+        .welcome-message {
+            background: #e8f5e9;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 25px 0;
+            border-left: 4px solid #28a745;
+        }
+        .next-steps {
+            background: #e3f2fd;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 25px 0;
+            border-left: 4px solid #2D8CFF;
+        }
+        .next-steps h3 {
+            color: #2D8CFF;
+            margin-top: 0;
+        }
+        .next-steps ol {
+            margin: 15px 0;
+            padding-left: 20px;
+        }
+        .next-steps li {
+            margin: 10px 0;
+        }
+        .welcome-message h2 {
+            color: #28a745;
+            margin-top: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Zoom Poll Automator</h1>
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="status {% if 'failed' in message.lower() or 'error' in message.lower() %}error{% else %}success{% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+        </div>
+
+        {% if authorized %}
+            <div class="welcome-message">
+                <h2>Welcome! You are authorized with Zoom.</h2>
+                <p>Your Zoom account is now connected and ready for poll automation.</p>
+            </div>
+
+            <div class="next-steps">
+                <h3>Next Steps:</h3>
+                <ol>
+                    <li>Configure your meeting settings and audio device</li>
+                    <li>Set up the automation parameters</li>
+                    <li>Start the poll automation</li>
+                </ol>
+            </div>
+
+            <div class="nav">
+                <a href="{{ url_for('setup') }}" class="button setup">Configure Poll Automation</a>
+                <a href="{{ url_for('logout') }}" class="button logout">Logout</a>
+            </div>
+        {% else %}
+            <div class="nav">
+                <h2>Please authorize with Zoom to continue</h2>
+                <p>You need to authorize this application to access your Zoom account for poll automation.</p>
+                <a href="{{ url_for('authorize') }}" class="button setup">🔐 Log in with Zoom</a>
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>

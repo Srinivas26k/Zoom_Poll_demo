@@ -1,0 +1,23 @@
+Flask==2.3.3
+python-dotenv==1.0.0
+requests==2.31.0
+openai # Removed version constraint to resolve dependency conflict
+sounddevice==0.4.6
+soundfile==0.12.1
+librosa # Removed version constraint to allow a compatible version
+numpy==1.24.3
+rich==13.5.2
+click>=8.0.0
+scipy>=1.10.0
+torch # Removed version constraint to allow a compatible version
+torchaudio # Removed version constraint to allow a compatible version
+ffmpeg-python>=0.2.0
+pyaudio # Changed from pyaudio==0.2.13 to allow a compatible version
+pytest==7.4.3
+flask-cors==4.0.0
+typing_extensions # Removed version constraint to allow a compatible version
+pytest-cov==4.1.0
+wave==0.0.2
+pydub==0.25.1
+flask-sock==0.7.0
+websockets==11.0.3
