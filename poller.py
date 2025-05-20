@@ -313,6 +313,12 @@ Create ONE poll question with exactly 4 answer options based STRICTLY on the act
 The poll must ONLY address topics that were explicitly discussed in the transcript.
 DO NOT introduce new topics or concepts not mentioned in the transcript.
 
+IMPORTANT RULES:
+1. The poll MUST be directly related to the main topic discussed in the transcript
+2. All options MUST be derived from actual statements or points made in the transcript
+3. Do not make up or assume any content not present in the transcript
+4. If the transcript is unclear or too short, indicate this in the title
+
 Your response should be in this JSON format with no other text:
 {{
   "title": "Brief descriptive title",
@@ -341,6 +347,9 @@ Make sure the question and options are directly related to the content in the tr
             }
             
             logger.info(f"Requesting poll from LLaMA at {url}")
+            logger.info(f"Transcript length: {len(cleaned_text)} characters")
+            logger.info(f"Key topics identified: {topics}")
+            
             response = requests.post(url, headers=headers, json=data, timeout=60)
             response.raise_for_status()
             
@@ -349,7 +358,27 @@ Make sure the question and options are directly related to the content in the tr
             logger.info(f"📥 LLaMA raw response received ({len(raw_text)} chars)")
             
             # Try to extract JSON
-            return extract_json_from_text(raw_text)
+            poll_data = extract_json_from_text(raw_text)
+            
+            if poll_data:
+                # Validate poll data
+                if not all(key in poll_data for key in ["title", "question", "options"]):
+                    logger.error("Generated poll missing required fields")
+                    return None
+                    
+                if len(poll_data.get("options", [])) != 4:
+                    logger.error("Generated poll must have exactly 4 options")
+                    return None
+                    
+                # Log the generated poll for verification
+                logger.info("Generated poll:")
+                logger.info(f"Title: {poll_data['title']}")
+                logger.info(f"Question: {poll_data['question']}")
+                logger.info(f"Options: {poll_data['options']}")
+                
+                return poll_data
+            
+            return None
             
         except Exception as e:
             logger.error(f"Error generating poll with Llama: {str(e)}")

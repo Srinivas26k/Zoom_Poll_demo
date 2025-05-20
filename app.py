@@ -335,28 +335,29 @@ def stop():
     return redirect(url_for("setup"))
 
 def cleanup_on_exit():
-    """Cleanup function to run when the application is shutting down"""
-    global automation_thread, meeting_recorder
+    """Clean up resources before exiting"""
+    global automation_thread, meeting_recorder, should_stop
     
-    # Stop automation thread
-    if automation_thread and automation_thread.is_alive():
-        console.log("[yellow]Application shutting down, stopping automation thread...[/]")
-        should_stop.set()
-        try:
-            automation_thread.join(timeout=1)
-        except Exception:
-            # Ignore exceptions during shutdown
-            pass
-    
-    # Close meeting recorder
-    if meeting_recorder is not None:
-        console.log("[yellow]Cleaning up meeting recorder...[/]")
-        try:
+    try:
+        # Stop the automation thread if running
+        if automation_thread and automation_thread.is_alive():
+            should_stop.set()
+            automation_thread.join(timeout=5)
+            log.info("Automation thread stopped")
+        
+        # Close the meeting recorder if active
+        if meeting_recorder is not None:
+            try:
+                meeting_recorder.stop_recording()
+            except:
+                pass
             meeting_recorder.close()
-        except Exception as e:
-            console.log(f"[yellow]Error closing meeting recorder: {str(e)}[/]")
-    
-    console.log("[green]Cleanup complete. Goodbye![/]")
+            log.info("Meeting recorder closed")
+        
+    except Exception as e:
+        log.error(f"Error during cleanup: {str(e)}", exc_info=True)
+    finally:
+        log.info("Application shutdown complete")
 
 # Register the cleanup function to run on application exit
 atexit.register(cleanup_on_exit)
@@ -393,7 +394,7 @@ def started():
 # New routes for meeting recording functionality
 @app.route("/record/status", methods=["GET"])
 def record_status():
-    """Check the status of the meeting recorder"""
+    """Get the current recording status"""
     global meeting_recorder
     
     if meeting_recorder is None:
@@ -414,7 +415,8 @@ def record_status():
         "active": meeting_recorder.recording,
         "meeting_id": meeting_recorder.meeting_id if meeting_recorder.recording else None,
         "transcript_length": len(meeting_recorder.full_transcript) if meeting_recorder.recording else 0,
-        "duration_seconds": duration_seconds,        "duration_formatted": formatted_duration,
+        "duration_seconds": duration_seconds,
+        "duration_formatted": formatted_duration,
         "has_transcript": bool(meeting_recorder.full_transcript),
         "has_notes": bool(meeting_recorder.summary_notes)
     })
@@ -422,6 +424,7 @@ def record_status():
 @app.route("/record/start", methods=["POST"])
 def record_start():
     """Start recording with the selected audio source"""
+    global meeting_recorder
     try:
         if meeting_recorder and meeting_recorder.is_recording:
             return jsonify({"error": "Recording already in progress"}), 400
@@ -430,7 +433,6 @@ def record_start():
         audio_source = session.get('audio_source', 'all')
         
         # Initialize or update the recorder
-        global meeting_recorder
         if not meeting_recorder:
             meeting_recorder = MeetingRecorder(
                 device_name=session.get('device'),
@@ -646,179 +648,194 @@ def recorder():
 
 @app.route("/update_audio_source", methods=["POST"])
 def update_audio_source():
-    """Update the audio source (host-only or all participants)"""
+    """Update the audio source for recording"""
+    global meeting_recorder
+    
     try:
-        audio_source = request.form.get('audio_source')
+        audio_source = request.json.get('audio_source')
         if audio_source not in ['host', 'all']:
-            return jsonify({"error": "Invalid audio source"}), 400
-
-        # Update the audio source in the session
+            return jsonify({
+                "status": "error",
+                "message": "Invalid audio source. Must be 'host' or 'all'."
+            }), 400
+        
+        # Store in session
         session['audio_source'] = audio_source
         
-        # Update the recording configuration
+        # Update recorder if it exists
         if meeting_recorder:
             meeting_recorder.set_audio_source(audio_source)
-            log.info(f"Audio source updated to: {audio_source}")
         
         return jsonify({
-            "success": True,
+            "status": "success",
             "message": f"Audio source updated to {audio_source}",
             "audio_source": audio_source
         })
     except Exception as e:
         log.error(f"Error updating audio source: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 @app.route("/record/pause", methods=["POST"])
 def record_pause():
-    """Pause or resume recording"""
-    try:
-        if not meeting_recorder:
-            return jsonify({"error": "No active recording session"}), 400
-
-        is_paused = meeting_recorder.toggle_pause()
-        status = "paused" if is_paused else "resumed"
-        
+    """Toggle pause/resume recording"""
+    global meeting_recorder
+    
+    if meeting_recorder is None or not meeting_recorder.recording:
         return jsonify({
-            "success": True,
+            "status": "error",
+            "message": "No active recording to pause/resume"
+        }), 400
+    
+    try:
+        meeting_recorder.toggle_pause()
+        status = "paused" if meeting_recorder.is_paused else "resumed"
+        return jsonify({
+            "status": "success",
             "message": f"Recording {status}",
-            "is_paused": is_paused
+            "is_paused": meeting_recorder.is_paused
         })
     except Exception as e:
-        log.error(f"Error toggling recording pause: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        log.error(f"Error toggling pause: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 @app.route("/download_transcript")
 def download_transcript():
-    """Download the meeting transcript"""
+    """Download the meeting transcript as a zip file containing text and JSON formats"""
+    global meeting_recorder
+    
+    if meeting_recorder is None:
+        return jsonify({
+            "status": "error",
+            "message": "No meeting recorder initialized"
+        }), 400
+    
     try:
-        if not meeting_recorder:
-            return jsonify({"error": "No transcript available"}), 404
-
-        # Get the transcript data
-        transcript_data = meeting_recorder.get_transcript()
-        
-        # Create a text file with the transcript
-        output = BytesIO()
-        with zipfile.ZipFile(output, 'w') as zipf:
+        # Create a zip file in memory
+        memory_file = BytesIO()
+        with zipfile.ZipFile(memory_file, 'w') as zf:
             # Add transcript as text file
-            transcript_text = ""
-            for entry in transcript_data:
-                timestamp = entry.get('timestamp', '')
-                text = entry.get('text', '')
-                speaker = entry.get('speaker', 'Unknown')
-                transcript_text += f"[{timestamp}] {speaker}: {text}\n"
+            transcript_text = "\n\n".join([
+                f"[{entry.get('timestamp', '')}] {entry.get('speaker', 'Unknown')}: {entry.get('text', '')}"
+                for entry in meeting_recorder.full_transcript
+            ])
+            zf.writestr("transcript.txt", transcript_text)
             
-            zipf.writestr('transcript.txt', transcript_text)
-            
-            # Add transcript as JSON for programmatic use
-            zipf.writestr('transcript.json', json.dumps(transcript_data, indent=2))
-            
-            # Add meeting metadata
-            metadata = {
-                "meeting_id": session.get('meeting_id'),
-                "start_time": meeting_recorder.start_time.isoformat(),
-                "end_time": datetime.now().isoformat(),
-                "audio_source": session.get('audio_source', 'all'),
-                "device": session.get('device')
+            # Add full data as JSON
+            transcript_data = {
+                "meeting_id": meeting_recorder.meeting_id,
+                "duration": meeting_recorder.get_recording_duration(),
+                "transcript": meeting_recorder.full_transcript,
+                "metadata": {
+                    "generated_at": datetime.now().isoformat(),
+                    "audio_source": meeting_recorder.audio_source
+                }
             }
-            zipf.writestr('metadata.json', json.dumps(metadata, indent=2))
-
-        output.seek(0)
+            zf.writestr("transcript.json", json.dumps(transcript_data, indent=2))
         
-        # Generate filename with timestamp
+        # Prepare the zip file for download
+        memory_file.seek(0)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"zoom_transcript_{timestamp}.zip"
-        
         return send_file(
-            output,
-            mimetype='application/zip',
+            memory_file,
+            mimetype="application/zip",
             as_attachment=True,
-            download_name=filename
+            download_name=f"transcript_{timestamp}.zip"
         )
+    
     except Exception as e:
-        log.error(f"Error downloading transcript: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        log.error(f"Error creating transcript download: {str(e)}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "message": f"Error: {str(e)}"
+        }), 500
 
 @app.route("/download_polls")
 def download_polls():
-    """Download the generated polls"""
+    """Download generated polls as a zip file"""
+    global meeting_recorder
+    
+    if meeting_recorder is None:
+        return jsonify({
+            "status": "error",
+            "message": "No meeting recorder initialized"
+        }), 400
+    
     try:
-        if not meeting_recorder:
-            return jsonify({"error": "No polls available"}), 404
-
-        # Get the generated polls
-        polls_data = meeting_recorder.get_generated_polls()
-        
-        # Create a zip file with the polls
-        output = BytesIO()
-        with zipfile.ZipFile(output, 'w') as zipf:
-            # Add polls as text file
-            polls_text = ""
-            for poll in polls_data:
-                polls_text += f"Question: {poll['question']}\n"
-                polls_text += f"Options: {', '.join(poll['options'])}\n"
-                polls_text += f"Generated at: {poll['timestamp']}\n"
-                polls_text += f"Context: {poll.get('context', '')}\n"
-                polls_text += "-" * 50 + "\n"
-            
-            zipf.writestr('polls.txt', polls_text)
-            
-            # Add polls as JSON for programmatic use
-            zipf.writestr('polls.json', json.dumps(polls_data, indent=2))
-            
-            # Add meeting metadata
-            metadata = {
-                "meeting_id": session.get('meeting_id'),
-                "start_time": meeting_recorder.start_time.isoformat(),
-                "end_time": datetime.now().isoformat(),
-                "total_polls": len(polls_data)
+        # Create a zip file in memory
+        memory_file = BytesIO()
+        with zipfile.ZipFile(memory_file, 'w') as zf:
+            # Add polls as JSON
+            polls_data = {
+                "meeting_id": meeting_recorder.meeting_id,
+                "polls": meeting_recorder.auto_polls,
+                "metadata": {
+                    "generated_at": datetime.now().isoformat(),
+                    "total_polls": len(meeting_recorder.auto_polls or [])
+                }
             }
-            zipf.writestr('metadata.json', json.dumps(metadata, indent=2))
-
-        output.seek(0)
+            zf.writestr("polls.json", json.dumps(polls_data, indent=2))
+            
+            # Add polls as text file for easy reading
+            polls_text = []
+            for i, poll in enumerate(meeting_recorder.auto_polls or [], 1):
+                polls_text.append(f"Poll #{i}")
+                polls_text.append("-" * 40)
+                polls_text.append(f"Question: {poll.get('question', 'N/A')}")
+                polls_text.append("\nOptions:")
+                for j, option in enumerate(poll.get('options', []), 1):
+                    polls_text.append(f"{j}. {option}")
+                polls_text.append("\n")
+            
+            zf.writestr("polls.txt", "\n".join(polls_text))
         
-        # Generate filename with timestamp
+        # Prepare the zip file for download
+        memory_file.seek(0)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"zoom_polls_{timestamp}.zip"
-        
         return send_file(
-            output,
-            mimetype='application/zip',
+            memory_file,
+            mimetype="application/zip",
             as_attachment=True,
-            download_name=filename
+            download_name=f"polls_{timestamp}.zip"
         )
+    
     except Exception as e:
-        log.error(f"Error downloading polls: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        log.error(f"Error creating polls download: {str(e)}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "message": f"Error: {str(e)}"
+        }), 500
 
 @sock.route('/ws/transcript')
 def transcript_ws(ws):
     """WebSocket endpoint for real-time transcript updates"""
+    global meeting_recorder
+    
     try:
         while True:
-            if not meeting_recorder or not meeting_recorder.is_recording:
-                time.sleep(1)
-                continue
-
-            # Get the latest transcript entries
-            transcript_data = meeting_recorder.get_latest_transcript()
-            
-            if transcript_data:
-                # Send each new transcript entry
-                for entry in transcript_data:
-                    ws.send(json.dumps({
-                        'timestamp': entry.get('timestamp', datetime.now().strftime('%H:%M:%S')),
-                        'speaker': entry.get('speaker', 'Unknown'),
-                        'text': entry.get('text', '')
-                    }))
-            
-            # Sleep briefly to avoid overwhelming the client
-            time.sleep(0.5)
-            
+            if meeting_recorder and meeting_recorder.recording:
+                # Get latest transcript entries
+                latest = meeting_recorder.get_latest_transcript()
+                if latest:
+                    # Format and send each entry
+                    for entry in latest:
+                        ws.send(json.dumps({
+                            'timestamp': entry.get('timestamp', datetime.now().strftime('%H:%M:%S')),
+                            'speaker': entry.get('speaker', 'Unknown'),
+                            'text': entry.get('text', '')
+                        }))
+            time.sleep(0.5)  # Brief pause to prevent overwhelming the client
     except Exception as e:
         log.error(f"WebSocket error: {str(e)}")
-        ws.close()
+        try:
+            ws.close()
+        except:
+            pass
 
 @app.route("/get_recommended_devices", methods=["GET"])
 def get_recommended_devices():
