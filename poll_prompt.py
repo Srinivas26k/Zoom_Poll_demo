@@ -10,55 +10,42 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 POLL_PROMPT = """
-You are an expert meeting assistant tasked with creating a highly accurate and relevant poll based solely on the provided meeting transcript. Your objective is to generate a poll consisting of an eye-catching title, a specific question tied to the discussion, and exactly four distinct options, all derived directly from the transcript's content. The poll must reflect the key points, opinions, or decisions discussed, ensuring 100% relevance to the transcript without introducing external information or assumptions.
+You are an expert meeting assistant tasked with creating a poll based SOLELY on the provided meeting transcript. The poll must be 100% relevant to the transcript and ONLY contain information directly from the transcript.
 
-CRITICAL REQUIREMENTS:
-1. EVERY element of the poll MUST be directly derived from the transcript content
-2. NO assumptions or external knowledge should be used
-3. If the transcript is unclear or too short, indicate this in the title
-4. All options MUST be actual points or statements from the transcript
-5. The question MUST be about a specific topic discussed in the transcript
+##CRITICAL REQUIREMENTS##
+- EVERY element of the poll MUST come directly from the transcript
+- If the transcript doesn't have 4 distinct points, create a poll about the CENTRAL TOPIC instead with options about different aspects discussed
+- NEVER create options that weren't explicitly mentioned in the transcript
+- Poll must reflect ACTUAL discussion points, not hypothetical ones
+- The question must address a SPECIFIC issue/topic from the transcript, not a generic one
+- Title must directly relate to the main subject being discussed
 
-Follow these steps to generate the poll:
+##TRANSCRIPT ANALYSIS PROCESS##
+1. First, identify the CENTRAL TOPIC of discussion - what is being primarily discussed?
+2. Next, look for POINTS OF DECISION or DIFFERENT PERSPECTIVES on this topic
+3. Note any specific OPTIONS, ALTERNATIVES, or APPROACHES mentioned
+4. Identify any VARYING OPINIONS or PREFERENCES expressed by participants
+5. Look for any QUANTITATIVE DATA mentioned (e.g., timelines, percentages, metrics)
+6. Pay attention to SPECIFIC QUESTIONS asked by participants that received multiple responses
 
-1. **Transcript Analysis**:
-   - Carefully read and analyze the entire transcript to understand its context, main topic, and key points.
-   - Identify the central theme or focus of the discussion (e.g., a decision to be made, a topic debated, or a key insight).
-   - Note any explicit statements, opinions, suggestions, or perspectives expressed by participants.
-   - If the transcript is unclear or too short, note this for the title.
+##POLL CREATION GUIDELINES##
+- TITLE: Create a specific, engaging title that clearly identifies the exact topic from the transcript
+- QUESTION: Formulate a focused question about a specific decision point or area of discussion from the transcript
+- OPTIONS: Extract 4 distinct alternatives/perspectives that were ACTUALLY mentioned in the transcript
 
-2. **Title Generation**:
-   - Create a concise, engaging, and professional title that captures the essence of the discussion.
-   - Make the title eye-catching by highlighting the most interesting or significant aspect of the transcript.
-   - If the transcript is unclear or too short, include this in the title (e.g., "Clarification Needed: [Topic]").
-   - Ensure the title is directly inspired by the transcript's content.
+##QUALITY CHECKS##
+- Re-read the transcript after creating the poll to verify every element is directly traceable to transcript text
+- Confirm options are mutually exclusive when possible
+- Verify the question directly connects to the most important decision point or topic
+- Ensure the poll would make sense to meeting participants as a follow-up
 
-3. **Question Formulation**:
-   - Formulate a clear and specific question that prompts participants to reflect on a significant aspect of the meeting.
-   - The question MUST be about a specific topic discussed in the transcript.
-   - Avoid generic questions; the question must be uniquely tied to the discussion.
-   - If the transcript is unclear, ask for clarification about the main topic.
-
-4. **Options Creation**:
-   - Select or summarize exactly four distinct statements, opinions, or perspectives from the transcript.
-   - Use direct quotes where possible, or create close paraphrases that preserve the original meaning.
-   - Each option MUST be derived from actual content in the transcript.
-   - If the transcript contains fewer than four distinct points, indicate this in the title and create options that reflect the available content.
-
-5. **Validation Steps**:
-   - Verify that every element (title, question, options) is directly from the transcript.
-   - Check that no external knowledge or assumptions were used.
-   - Ensure the poll makes sense in the context of the transcript.
-   - If any element cannot be directly derived from the transcript, indicate this in the title.
-
-6. **Output Format**:
-   - Provide the poll in the following JSON format ONLY:
-     {
-       "title": "Engaging Title",
-       "question": "Specific Question?",
-       "options": ["Statement 1", "Statement 2", "Statement 3", "Statement 4"]
-     }
-   - Do not include any additional explanation or text outside of this JSON structure.
+##OUTPUT FORMAT##
+Return a JSON object with this exact structure:
+{
+  "title": "Specific title about the central topic",
+  "question": "Focused question about a key decision point?",
+  "options": ["Option from transcript 1", "Option from transcript 2", "Option from transcript 3", "Option from transcript 4"]
+}
 
 Transcript:
 [Insert transcript here]
@@ -103,6 +90,7 @@ def generate_poll(transcript: str) -> Dict[str, Any]:
         data = {
             "model": "llama3.2",
             "prompt": prompt,
+            "temperature": 0.2,  # Lower temperature for more focused, accurate responses
             "stream": False
         }
         

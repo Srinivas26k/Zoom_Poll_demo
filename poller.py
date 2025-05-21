@@ -73,7 +73,7 @@ def extract_json_from_text(text):
     
     return None
 
-def generate_poll_from_transcript(transcript: str) -> tuple[str, str, list[str]]:
+def generate_poll_from_transcript(transcript: str) -> tuple[Optional[str], Optional[str], Optional[list[str]]]:
     """
     Generate a poll from a transcript using LLaMA and the imported prompt.
 
@@ -81,14 +81,13 @@ def generate_poll_from_transcript(transcript: str) -> tuple[str, str, list[str]]
         transcript (str): The meeting transcript to analyze.
 
     Returns:
-        tuple: (title, question, options) of the generated poll.
+        tuple: (title, question, options) of the generated poll, or (None, None, None) if no poll can be generated.
     """
     # Clean and prepare the transcript
     clean_transcript = transcript.strip()
-    if not clean_transcript:
-        console.log("[yellow]⚠️ Empty transcript provided[/]")
-        return ("Meeting Poll", "What was discussed?", 
-                ["Option 1", "Option 2", "Option 3", "Option 4"])
+    if not clean_transcript or len(clean_transcript.split()) < 10:  # Ensure at least a few words
+        console.log("[yellow]⚠️ Transcript too short or empty. No poll will be generated.[/]")
+        return None, None, None
     
     # Combine the prompt with the transcript
     full_prompt = POLL_PROMPT.replace("[Insert transcript here]", clean_transcript)
@@ -388,23 +387,65 @@ Make sure the question and options are directly related to the content in the tr
         return None
 
 def extract_key_topics(text: str) -> str:
-    """Extract key topics from the transcript"""
-    # Simple keyword extraction
-    words = re.findall(r'\b\w{4,}\b', text.lower())
-    word_counts = {}
-    for word in words:
-        if word not in ['that', 'this', 'with', 'from', 'have', 'what', 'when', 'where']:
+    """Extract key topics from the transcript for better context"""
+    try:
+        # Simple keyword extraction with better filtering
+        if not text:
+            return "the main subject"
+
+        # Convert to lowercase
+        text = text.lower()
+
+        # Remove punctuation (simplified)
+        text = re.sub(r'[^\\w\\s]', '', text)
+
+        # Common English stop words (a basic list)
+        stop_words = set([
+            "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours",
+            "yourself", "yourselves", "he", "him", "his", "himself", "she", "her", "hers",
+            "herself", "it", "its", "itself", "they", "them", "their", "theirs", "themselves",
+            "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are",
+            "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does",
+            "did", "doing", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until",
+            "while", "of", "at", "by", "for", "with", "about", "against", "between", "into",
+            "through", "during", "before", "after", "above", "below", "to", "from", "up", "down",
+            "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here",
+            "there", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more",
+            "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so",
+            "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now", "ll", 
+            "m", "o", "re", "ve", "y", "ain", "aren", "couldn", "didn", "doesn", "hadn", "hasn", 
+            "haven", "isn", "ma", "mightn", "mustn", "needn", "shan", "shouldn", "wasn", "weren", 
+            "won", "wouldn", "okay", "yeah", "yes", "right"
+        ])
+
+        words = text.split()
+        
+        # Filter out stop words and very short words
+        filtered_words = [word for word in words if word not in stop_words and len(word) > 2]
+
+        if not filtered_words:
+            return "the main subject" # Fallback if no meaningful words left
+
+        # Count word frequencies
+        word_counts = {}
+        for word in filtered_words:
             word_counts[word] = word_counts.get(word, 0) + 1
-    
-    # Sort by frequency
-    sorted_words = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
-    
-    # Take top 5 keywords
-    top_keywords = [word for word, count in sorted_words[:5]]
-    
-    if top_keywords:
-        return ", ".join(top_keywords)
-    return ""
+        
+        # Sort words by frequency in descending order
+        sorted_words = sorted(word_counts.items(), key=lambda item: item[1], reverse=True)
+        
+        # Get the top 2-3 topics
+        num_topics = min(len(sorted_words), 3)
+        top_topics = [word[0] for word in sorted_words[:num_topics]]
+        
+        if not top_topics:
+             return "the main subject" # Fallback
+
+        return ", ".join(top_topics)
+
+    except Exception as e:
+        logger.error(f"Error extracting key topics: {str(e)}")
+        return "the main subject" # Fallback in case of any error
 
 def format_poll_for_zoom(poll_data: Dict[str, Any]) -> Dict[str, Any]:
     """Format poll data in the structure expected by Zoom API"""

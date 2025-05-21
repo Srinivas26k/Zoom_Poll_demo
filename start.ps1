@@ -31,101 +31,96 @@ Write-Host ""
 function Handle-Error {
     param(
         [string]$ErrorMessage,
-        [string]$Details = ""
+        [string]$Details = "",
+        [string]$HelpUrl = "https://deepwiki.com/Srinivas26k/Zoom_Poll_demo/1-overview"
     )
     Write-Host "`nERROR: $ErrorMessage" -ForegroundColor Red
     if ($Details) {
         Write-Host "Details: $Details" -ForegroundColor Red
     }
+    Write-Host "For help, visit: $HelpUrl" -ForegroundColor Yellow
     Write-Host "`nPress Enter to exit..."
     Read-Host
     exit 1
 }
 
-# 1) Python 3.8+ check
-Write-Host "[1/3] Checking for Python 3.8+..." -ForegroundColor Cyan
+# Function to check and create Python virtual environment
+function Setup-VirtualEnvironment {
+    $venvDir = "venv"
+    if (-not (Test-Path $venvDir)) {
+        Write-Host "Creating virtual environment '$venvDir'..."
+        try {
+            python -m venv $venvDir
+            if ($LASTEXITCODE -ne 0) { throw "Failed to create venv" }
+            Write-Host "SUCCESS: Virtual environment created." -ForegroundColor Green
+        } catch {
+            Handle-Error "Failed to create virtual environment" $_.Exception.Message
+        }
+    }
+
+    # Activate virtual environment
+    $activateScript = Join-Path $venvDir "Scripts\Activate.ps1"
+    if (-not (Test-Path $activateScript)) {
+        Handle-Error "Virtual environment activation script not found" "The virtual environment might be corrupted. Try deleting the 'venv' folder and running setup again."
+    }
+
+    try {
+        . $activateScript
+        if (-not $env:VIRTUAL_ENV) {
+            Handle-Error "Failed to activate virtual environment" "Environment variable VIRTUAL_ENV not set after activation"
+        }
+        Write-Host "SUCCESS: Virtual environment activated." -ForegroundColor Green
+    } catch {
+        Handle-Error "Failed to activate virtual environment" $_.Exception.Message
+    }
+}
+
+# Function to install base dependencies
+function Install-BaseDependencies {
+    Write-Host "`n[*] Installing base dependencies..." -ForegroundColor Cyan
+    try {
+        # Upgrade pip first
+        python -m pip install --upgrade pip
+        if ($LASTEXITCODE -ne 0) { throw "Failed to upgrade pip" }
+        Write-Host "SUCCESS: Pip upgraded." -ForegroundColor Green
+
+        # Install base requirements needed for setup.py
+        python -m pip install requests rich python-dotenv setuptools
+        if ($LASTEXITCODE -ne 0) { throw "Failed to install base dependencies" }
+        Write-Host "SUCCESS: Base dependencies installed." -ForegroundColor Green
+    } catch {
+        Handle-Error "Failed to install base dependencies" $_.Exception.Message
+    }
+}
+
+# 1) Python version check
+Write-Host "[1/2] Checking Python version..." -ForegroundColor Cyan
 try {
-    $pythonPath = Get-Command python -ErrorAction Stop | Select-Object -ExpandProperty Source
     $pythonVersion = (python -c "import sys; print(sys.version.split()[0])").Trim()
     $majorVersion = [int]($pythonVersion.Split('.')[0])
     $minorVersion = [int]($pythonVersion.Split('.')[1])
 
     if ($majorVersion -lt 3 -or ($majorVersion -eq 3 -and $minorVersion -lt 8)) {
-        Handle-Error "Python 3.8+ required, found $pythonVersion" "Please update your Python installation."
+        Handle-Error "Python 3.8+ required, found $pythonVersion" "Please update your Python installation from https://www.python.org/downloads/"
     }
-    Write-Host "SUCCESS: Python $pythonVersion OK." -ForegroundColor Green
+    Write-Host "SUCCESS: Python $pythonVersion detected." -ForegroundColor Green
 } catch {
-    Handle-Error "Python not found in PATH" "Install Python 3.8+ from https://www.python.org/downloads/"
+    Handle-Error "Python not found in PATH" "Install Python 3.8+ from https://www.python.org/downloads/ and ensure 'Add Python to PATH' is checked"
 }
-Write-Host ""
 
-# 2) Virtual environment
-Write-Host "[2/3] Setting up virtual environment..." -ForegroundColor Cyan
-$venvDir = "venv"
-if (-not (Test-Path $venvDir)) {
-    Write-Host "Creating virtual environment '$venvDir'..."
-    try {
-        python -m venv $venvDir
-        if ($LASTEXITCODE -ne 0) { throw "Failed to create venv" }
-        Write-Host "SUCCESS: venv created." -ForegroundColor Green
-    } catch {
-        Handle-Error "Failed to create venv" "Ensure you have permission to create directories and files. Error: $($_.Exception.Message)"
+# 2) Launch menu.py
+Write-Host "`n[2/2] Launching application menu..." -ForegroundColor Cyan
+try {
+    # Install minimal dependencies needed for menu.py
+    python -m pip install rich python-dotenv
+    python menu.py
+    if ($LASTEXITCODE -ne 0) {
+        Handle-Error "Menu.py failed to start" "The application menu encountered an error"
     }
-}
-
-Write-Host "Activating virtual environment '$venvDir'..."
-$activateScript = Join-Path $venvDir "Scripts\Activate.ps1"
-if (-not (Test-Path $activateScript)) {
-    Handle-Error "Activation script not found" "The virtual environment might not have been created correctly. Path: $activateScript"
-}
-
-# Execute the activation script in the current scope
-try {
-. $activateScript
-if (-not $env:VIRTUAL_ENV) {
-        Handle-Error "Failed to activate venv" "Check if the venv directory was created correctly."
-}
-    Write-Host "SUCCESS: venv activated ($env:VIRTUAL_ENV)." -ForegroundColor Green
 } catch {
-    Handle-Error "Failed to activate virtual environment" $_.Exception.Message
-}
-Write-Host ""
-
-# 3) Install necessary packages for setup.py
-Write-Host "[3/3] Ensuring setup tools are available..." -ForegroundColor Cyan
-try {
-    Write-Host "Installing/upgrading required packages..."
-    python -m pip install --upgrade pip rich setuptools requests python-dotenv
-    if ($LASTEXITCODE -ne 0) { throw "Failed to install setup tools" }
-    Write-Host "SUCCESS: Setup tools installed." -ForegroundColor Green
-} catch {
-    Handle-Error "Failed to install necessary packages" $_.Exception.Message
-}
-Write-Host ""
-
-# --- Run setup.py ---
-Write-Host "================================================"
-Write-Host "      Running setup.py for detailed setup"
-Write-Host "================================================"
-Write-Host ""
-
-# Execute the setup.py script
-try {
-    python setup.py
-    if ($LASTEXITCODE -ne 0) { throw "setup.py failed" }
-    Write-Host "`nSUCCESS: setup.py completed successfully" -ForegroundColor Green
-    Write-Host ""
-
-    # --- Launch application if setup was successful ---
-    Write-Host "================================================"
-    Write-Host "      Launching Zoom Poll Automator"
-    Write-Host "================================================"
-    Write-Host ""
-    python app.py
-
-} catch {
-    Handle-Error "Setup process failed" "Please review the output above for errors during the setup process. Error: $($_.Exception.Message)"
+    Handle-Error "Failed to launch menu.py" $_.Exception.Message
 }
 
-Write-Host "`nApplication stopped. Press Enter to close…"
+Write-Host "`nApplication closed." -ForegroundColor Green
+Write-Host "Press Enter to exit..."
 Read-Host

@@ -1,13 +1,11 @@
 # app.py
-
 from flask import Flask, redirect, url_for, session, request, render_template, flash, jsonify, send_file
 import requests, base64, threading, os, time, webbrowser, secrets
 from rich.console import Console
 from run_loop import run_loop
 import config
 from audio_capture import list_audio_devices, AudioDevice
-from virtual_audio import VirtualAudioRecorder, check_virtual_audio_setup
-from meeting_recorder import MeetingRecorder, check_meeting_recorder_setup
+
 from ai_notes import AINotesGenerator
 import sys
 from urllib.parse import urlencode, quote
@@ -15,7 +13,7 @@ from dotenv import load_dotenv
 import logging
 from rich.logging import RichHandler
 from datetime import timedelta, datetime
-import atexit
+
 import json
 from io import BytesIO
 import zipfile

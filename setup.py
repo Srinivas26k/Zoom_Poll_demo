@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # setup.py - Setup script for Zoom Poll Automator
 
 import os
@@ -366,14 +365,23 @@ def main():
     try:
         wizard = SetupWizard()
         success = wizard.run()
-        sys.exit(0 if success else 1)
+        if success:
+            console.print("\n[bold green]✓ Setup completed successfully![/bold green]")
+            console.print("\nTo start the application:")
+            console.print("1. The menu system will start automatically.")
+            console.print("2. If you need to restart later, run:")
+            console.print("   [bold cyan]python menu.py[/bold cyan]")
+            return 0
+        else:
+            console.print("\n[bold red]Setup failed. Please check the errors above.[/bold red]")
+            return 1
     except KeyboardInterrupt:
         console.print("\n[yellow]Setup cancelled by user[/yellow]")
-        sys.exit(1)
+        return 1
     except Exception as e:
         logger.error(f"Setup failed: {str(e)}", exc_info=True)
         console.print(f"[bold red]An unhandled error occurred during setup: {str(e)}[/bold red]")
-        sys.exit(1)
+        return 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
