@@ -1,202 +1,470 @@
 <!-- templates/started.html -->
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Running - Zoom Poll Automator</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            line-height: 1.6;
-            background-color: #f5f5f5;
-        }
-        .container {
-            background: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #eee;
-        }
-        .header h1 {
-            color: #2D8CFF;
-            margin: 0;
-            font-size: 2.5em;
-        }
-        .status {
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 4px;
-            border-left: 4px solid;
-        }
-        .status.success {
-            background: #d4edda;
-            color: #155724;
-            border-left-color: #28a745;
-        }
-        .status.error {
-            background: #f8d7da;
-            color: #721c24;
-            border-left-color: #dc3545;
-        }
-        .status.warning {
-            background: #fff3cd;
-            color: #856404;
-            border-left-color: #ffeeba;
-        }
-        .button {
-            display: inline-block;
-            padding: 12px 24px;
-            background: #2D8CFF;
-            color: white;
-            text-decoration: none;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: bold;
-            transition: all 0.3s ease;
-            min-width: 200px;
-        }
-        .button:hover {
-            background: #2681F2;
-            transform: translateY(-1px);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .button.secondary {
-            background: #6c757d;
-        }
-        .button.secondary:hover {
-            background: #5a6268;
-        }
-        .button.stop {
-            background: #dc3545;
-            font-size: 1.2em;
-            padding: 15px 30px;
-        }
-        .button.stop:hover {
-            background: #c82333;
-        }
-        .nav {
-            margin: 30px 0;
-            text-align: center;
-        }
-        .info-box {
-            background: #e3f2fd;
-            padding: 20px;
-            border-radius: 4px;
-            margin: 20px 0;
-            border-left: 4px solid #2D8CFF;
-        }
-        .info-box h3 {
-            color: #2D8CFF;
-            margin-top: 0;
-        }
-        .info-box ul {
-            margin: 10px 0;
-            padding-left: 20px;
-        }
-        .info-box li {
-            margin: 5px 0;
-        }
-        .terminal {
-            background: #1e1e1e;
-            color: #fff;
-            padding: 20px;
-            border-radius: 4px;
-            margin: 20px 0;
-            font-family: monospace;
-            white-space: pre-wrap;
-            overflow-x: auto;
-        }
-        .terminal .success {
-            color: #28a745;
-        }
-        .terminal .error {
-            color: #dc3545;
-        }
-        .terminal .warning {
-            color: #ffc107;
-        }
-        .terminal .info {
-            color: #17a2b8;
-        }
-        .notes {
-            background: #fff3cd;
-            padding: 20px;
-            border-radius: 4px;
-            margin: 20px 0;
-            border-left: 4px solid #ffc107;
-        }
-        .notes h3 {
-            color: #856404;
-            margin-top: 0;
-        }
-        .notes ul {
-            margin: 10px 0;
-            padding-left: 20px;
-        }
-        .notes li {
-            margin: 5px 0;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Poll Automation Running</h1>
-            {% with messages = get_flashed_messages() %}
-                {% if messages %}
-                    {% for message in messages %}
-                        <div class="status {% if 'error' in message.lower() %}error{% elif 'warning' in message.lower() %}warning{% else %}success{% endif %}">
-                            {{ message }}
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <!-- Left Panel: Controls -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Recording Controls</h5>
+                </div>
+                <div class="card-body">
+                    <!-- Audio Source Selection -->
+                    <div class="mb-4">
+                        <label class="form-label">Audio Source</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="audioSource" id="audioHost" value="host" 
+                                   {% if session.get('audio_source') == 'host' %}checked{% endif %}>
+                            <label class="btn btn-outline-primary" for="audioHost">Host Only</label>
+                            
+                            <input type="radio" class="btn-check" name="audioSource" id="audioAll" value="all"
+                                   {% if session.get('audio_source') == 'all' or not session.get('audio_source') %}checked{% endif %}>
+                            <label class="btn btn-outline-primary" for="audioAll">All Participants</label>
                         </div>
-                    {% endfor %}
-                {% endif %}
-            {% endwith %}
+                    </div>
+
+                    <!-- Device Selection -->
+                    <div class="mb-4">
+                        <label class="form-label">Input Device</label>
+                        <div class="input-group">
+                            <select class="form-select" id="inputDevice">
+                                <option value="">Select an input device...</option>
+                            </select>
+                            <button class="btn btn-outline-secondary" type="button" id="refreshDevices">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
+                        <div id="deviceRecommendation" class="mt-2 small text-muted"></div>
+                    </div>
+
+                    <!-- Recording Controls -->
+                    <div class="d-grid gap-2">
+                        <button id="startRecording" class="btn btn-success">
+                            <i class="fas fa-play"></i> Start Recording
+                        </button>
+                        <button id="pauseRecording" class="btn btn-warning" disabled>
+                            <i class="fas fa-pause"></i> Pause
+                        </button>
+                        <button id="stopRecording" class="btn btn-danger" disabled>
+                            <i class="fas fa-stop"></i> Stop Recording
+                        </button>
+                    </div>
+
+                    <!-- Recording Status -->
+                    <div class="mt-3">
+                        <div class="d-flex align-items-center">
+                            <div id="recordingStatus" class="badge bg-secondary">Not Recording</div>
+                            <div id="recordingTimer" class="ms-2">00:00:00</div>
+                        </div>
+                    </div>
+
+                    <!-- Download Options -->
+                    <div class="mt-4">
+                        <h6>Downloads</h6>
+                        <div class="d-grid gap-2">
+                            <a href="/download_transcript" class="btn btn-outline-primary" id="downloadTranscript" disabled>
+                                <i class="fas fa-file-alt"></i> Download Transcript
+                            </a>
+                            <a href="/download_polls" class="btn btn-outline-primary" id="downloadPolls" disabled>
+                                <i class="fas fa-poll"></i> Download Polls
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <div class="info-box">
-            <h3>Current Status</h3>
-            <ul>
-                <li>✅ Audio recording is active</li>
-                <li>✅ Transcription is running</li>
-                <li>✅ Poll generation is enabled</li>
-                <li>✅ Zoom integration is connected</li>
-            </ul>
-        </div>
-
-        <div class="terminal">
-            <span class="info">[INFO]</span> Poll automation started successfully
-            <span class="success">[SUCCESS]</span> Connected to Zoom meeting
-            <span class="info">[INFO]</span> Audio capture device initialized
-            <span class="info">[INFO]</span> Transcription service ready
-            <span class="info">[INFO]</span> Poll generation service active
-            <span class="info">[INFO]</span> Waiting for audio input...
-        </div>
-
-        <div class="notes">
-            <h3>Important Notes</h3>
-            <ul>
-                <li>Keep this window open while the automation is running</li>
-                <li>Use the Stop button below to safely stop the automation</li>
-                <li>Check your terminal for detailed logs and any errors</li>
-                <li>The system will automatically generate polls based on the meeting content</li>
-            </ul>
-        </div>
-
-        <div class="nav">
-            <form action="{{ url_for('stop') }}" method="post" style="display: inline;">
-                <button type="submit" class="button stop">Stop Automation</button>
-            </form>
-            <a href="{{ url_for('setup') }}" class="button secondary">Back to Setup</a>
+        <!-- Right Panel: Live Transcript -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Live Transcript</h5>
+                    <div class="btn-group">
+                        <button class="btn btn-sm btn-outline-secondary" id="clearTranscript">
+                            <i class="fas fa-trash"></i> Clear
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" id="copyTranscript">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="transcriptContainer" class="transcript-container">
+                        <div id="liveTranscript" class="transcript-content">
+                            <!-- Transcript entries will be added here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
-</body>
-</html>
+</div>
+
+<!-- Custom CSS -->
+    <style>
+.transcript-container {
+    height: 600px;
+    overflow-y: auto;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    padding: 1rem;
+}
+
+.transcript-content {
+    font-family: 'Courier New', monospace;
+            line-height: 1.6;
+}
+
+.transcript-entry {
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+            border-radius: 4px;
+    background-color: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.transcript-entry .timestamp {
+    color: #6c757d;
+    font-size: 0.9em;
+}
+
+.transcript-entry .speaker {
+            font-weight: bold;
+    color: #0d6efd;
+}
+
+.transcript-entry .text {
+    margin-left: 1rem;
+}
+
+#recordingStatus {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+#recordingStatus.recording {
+    background-color: #dc3545;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+</style>
+
+<!-- Custom JavaScript -->
+<script>
+let recordingTimer = null;
+let startTime = null;
+
+// Audio Source Selection with Device Recommendations
+document.querySelectorAll('input[name="audioSource"]').forEach(radio => {
+    radio.addEventListener('change', async (e) => {
+        try {
+            // Update audio source
+            const response = await fetch('/update_audio_source', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `audio_source=${e.target.value}`
+            });
+            const data = await response.json();
+            if (data.success) {
+                showToast('success', data.message);
+                
+                // Get device recommendations
+                const recResponse = await fetch(`/get_recommended_devices?audio_source=${e.target.value}`);
+                const recData = await recResponse.json();
+                
+                if (recData.success) {
+                    const recommendations = recData.recommendations;
+                    
+                    // Update device dropdown
+                    const deviceSelect = document.getElementById('inputDevice');
+                    deviceSelect.innerHTML = '<option value="">Select an input device...</option>';
+                    
+                    // Add recommended device first
+                    if (recommendations.recommended) {
+                        const option = document.createElement('option');
+                        option.value = recommendations.recommended;
+                        option.text = `⭐ ${recommendations.recommended} (Recommended)`;
+                        deviceSelect.appendChild(option);
+                    }
+                    
+                    // Add alternatives
+                    recommendations.alternatives.forEach(device => {
+                        const option = document.createElement('option');
+                        option.value = device;
+                        option.text = `➡️ ${device} (Alternative)`;
+                        deviceSelect.appendChild(option);
+                    });
+                    
+                    // Add all other devices
+                    recommendations.all_devices
+                        .filter(device => device !== recommendations.recommended && !recommendations.alternatives.includes(device))
+                        .forEach(device => {
+                            const option = document.createElement('option');
+                            option.value = device;
+                            option.text = device;
+                            deviceSelect.appendChild(option);
+                        });
+                    
+                    // Show recommendation explanation
+                    const recommendationDiv = document.getElementById('deviceRecommendation');
+                    recommendationDiv.innerHTML = `
+                        <div class="alert alert-info mb-0">
+                            <i class="fas fa-info-circle"></i> ${recommendations.explanation}
+                        </div>
+                    `;
+                    
+                    // Select recommended device if available
+                    if (recommendations.recommended) {
+                        deviceSelect.value = recommendations.recommended;
+                    }
+                }
+            } else {
+                showToast('error', data.error);
+            }
+        } catch (error) {
+            showToast('error', 'Failed to update audio source');
+        }
+    });
+});
+
+// Refresh Devices Button
+document.getElementById('refreshDevices').addEventListener('click', async () => {
+    const audioSource = document.querySelector('input[name="audioSource"]:checked').value;
+    const recResponse = await fetch(`/get_recommended_devices?audio_source=${audioSource}`);
+    const recData = await recResponse.json();
+    
+    if (recData.success) {
+        const recommendations = recData.recommendations;
+        const deviceSelect = document.getElementById('inputDevice');
+        const currentDevice = deviceSelect.value;
+        
+        // Update device list
+        deviceSelect.innerHTML = '<option value="">Select an input device...</option>';
+        
+        // Add recommended device first
+        if (recommendations.recommended) {
+            const option = document.createElement('option');
+            option.value = recommendations.recommended;
+            option.text = `⭐ ${recommendations.recommended} (Recommended)`;
+            deviceSelect.appendChild(option);
+        }
+        
+        // Add alternatives
+        recommendations.alternatives.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device;
+            option.text = `➡️ ${device} (Alternative)`;
+            deviceSelect.appendChild(option);
+        });
+        
+        // Add all other devices
+        recommendations.all_devices
+            .filter(device => device !== recommendations.recommended && !recommendations.alternatives.includes(device))
+            .forEach(device => {
+                const option = document.createElement('option');
+                option.value = device;
+                option.text = device;
+                deviceSelect.appendChild(option);
+            });
+        
+        // Try to restore previous selection
+        if (currentDevice) {
+            deviceSelect.value = currentDevice;
+        } else if (recommendations.recommended) {
+            deviceSelect.value = recommendations.recommended;
+        }
+        
+        showToast('success', 'Device list refreshed');
+    } else {
+        showToast('error', 'Failed to refresh device list');
+    }
+});
+
+// Recording Controls
+document.getElementById('startRecording').addEventListener('click', async () => {
+    try {
+        const response = await fetch('/record/start', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            document.getElementById('startRecording').disabled = true;
+            document.getElementById('pauseRecording').disabled = false;
+            document.getElementById('stopRecording').disabled = false;
+            document.getElementById('recordingStatus').classList.add('recording');
+            startTimer();
+            showToast('success', 'Recording started');
+        } else {
+            showToast('error', data.error);
+        }
+    } catch (error) {
+        showToast('error', 'Failed to start recording');
+    }
+});
+
+document.getElementById('pauseRecording').addEventListener('click', async () => {
+    try {
+        const response = await fetch('/record/pause', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            const button = document.getElementById('pauseRecording');
+            if (data.is_paused) {
+                button.innerHTML = '<i class="fas fa-play"></i> Resume';
+                button.classList.remove('btn-warning');
+                button.classList.add('btn-success');
+                pauseTimer();
+            } else {
+                button.innerHTML = '<i class="fas fa-pause"></i> Pause';
+                button.classList.remove('btn-success');
+                button.classList.add('btn-warning');
+                startTimer();
+            }
+            showToast('success', data.message);
+        } else {
+            showToast('error', data.error);
+        }
+    } catch (error) {
+        showToast('error', 'Failed to toggle recording pause');
+    }
+});
+
+document.getElementById('stopRecording').addEventListener('click', async () => {
+    try {
+        const response = await fetch('/record/stop', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            document.getElementById('startRecording').disabled = false;
+            document.getElementById('pauseRecording').disabled = true;
+            document.getElementById('stopRecording').disabled = true;
+            document.getElementById('recordingStatus').classList.remove('recording');
+            document.getElementById('downloadTranscript').disabled = false;
+            document.getElementById('downloadPolls').disabled = false;
+            stopTimer();
+            showToast('success', 'Recording stopped');
+        } else {
+            showToast('error', data.error);
+        }
+    } catch (error) {
+        showToast('error', 'Failed to stop recording');
+    }
+});
+
+// Transcript Management
+document.getElementById('clearTranscript').addEventListener('click', () => {
+    document.getElementById('liveTranscript').innerHTML = '';
+    showToast('success', 'Transcript cleared');
+});
+
+document.getElementById('copyTranscript').addEventListener('click', () => {
+    const transcript = document.getElementById('liveTranscript').innerText;
+    navigator.clipboard.writeText(transcript).then(() => {
+        showToast('success', 'Transcript copied to clipboard');
+    }).catch(() => {
+        showToast('error', 'Failed to copy transcript');
+    });
+});
+
+// Timer Functions
+function startTimer() {
+    if (!startTime) {
+        startTime = Date.now();
+    }
+    recordingTimer = setInterval(updateTimer, 1000);
+}
+
+function pauseTimer() {
+    clearInterval(recordingTimer);
+}
+
+function stopTimer() {
+    clearInterval(recordingTimer);
+    startTime = null;
+    document.getElementById('recordingTimer').textContent = '00:00:00';
+}
+
+function updateTimer() {
+    const elapsed = Date.now() - startTime;
+    const hours = Math.floor(elapsed / 3600000);
+    const minutes = Math.floor((elapsed % 3600000) / 60000);
+    const seconds = Math.floor((elapsed % 60000) / 1000);
+    
+    document.getElementById('recordingTimer').textContent = 
+        `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+// Toast Notification
+function showToast(type, message) {
+    const toast = document.createElement('div');
+    toast.className = `toast align-items-center text-white bg-${type} border-0`;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+    
+    toast.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body">
+                ${message}
+                        </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+    `;
+    
+    const container = document.createElement('div');
+    container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+    container.appendChild(toast);
+    document.body.appendChild(container);
+    
+    const bsToast = new bootstrap.Toast(toast);
+    bsToast.show();
+    
+    toast.addEventListener('hidden.bs.toast', () => {
+        container.remove();
+    });
+}
+
+// WebSocket for Live Transcript Updates
+const ws = new WebSocket(`ws://${window.location.host}/ws/transcript`);
+
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    const transcriptDiv = document.getElementById('liveTranscript');
+    
+    const entry = document.createElement('div');
+    entry.className = 'transcript-entry';
+    entry.innerHTML = `
+        <span class="timestamp">[${data.timestamp}]</span>
+        <span class="speaker">${data.speaker}:</span>
+        <span class="text">${data.text}</span>
+    `;
+    
+    transcriptDiv.appendChild(entry);
+    transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+};
+
+ws.onclose = () => {
+    showToast('error', 'Lost connection to server');
+};
+
+ws.onerror = () => {
+    showToast('error', 'WebSocket error occurred');
+};
+</script>
+{% endblock %}

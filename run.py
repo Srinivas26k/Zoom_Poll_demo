@@ -1,21 +1,23 @@
 import os
 import time
-import shutil
+# import shutil # Unused
 import logging
 import signal
 import sys
 import argparse
-from pathlib import Path
-from typing import Optional, Tuple, List
-from dotenv import load_dotenv
+# from pathlib import Path # Unused
+# from typing import Optional, Tuple, List # Unused
+# from dotenv import load_dotenv # Unused, config.py handles .env loading
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+# from rich.progress import Progress, SpinnerColumn, TextColumn # Unused
 from rich.logging import RichHandler
 
-from audio_capture import record_segment
-from transcribe_whisper import WhisperTranscriber
-from poller import generate_poll_from_transcript, post_poll_to_zoom
+# from audio_capture import record_segment # Removed
+# from transcribe_whisper import WhisperTranscriber # Removed
+from meeting_recorder import MeetingRecorder # Added
+# from poller import generate_poll_from_transcript # Unused directly
+from poller import post_poll_to_zoom # Keep for callback
 import config
 
 # Create logs directory
@@ -36,14 +38,14 @@ console = Console()
 config.setup_config()
 
 class ZoomPollAutomator:
-    def __init__(self, test_mode: bool = False):
+    def __init__(self, test_mode: bool = False): # test_mode will be less effective now
         self.running = True
-        self.whisper = WhisperTranscriber()
+        # self.whisper = WhisperTranscriber() # Removed
         self.setup_signal_handlers()
-        self.test_mode = test_mode
-        self.retry_count = 0
-        self.max_retry_count = 5
-        self.base_delay = 5  # Base delay in seconds
+        self.test_mode = test_mode # Will be re-evaluated, currently has minimal effect
+        # self.retry_count = 0 # Removed
+        # self.max_retry_count = 5 # Removed
+        # self.base_delay = 5  # Removed
         
     def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown."""
@@ -93,129 +95,80 @@ class ZoomPollAutomator:
             logger.error(f"Error checking environment: {str(e)}")
             return False
     
-    def cleanup_files(self):
-        """Clean up temporary files."""
-        try:
-            for f in ("segment.wav", "temp_stereo.wav"):
-                if os.path.exists(f):
-                    os.remove(f)
-                    logger.debug(f"Cleaned up {f}")
-        except Exception as e:
-            logger.error(f"Error cleaning up files: {str(e)}")
-    
-    def calculate_backoff_delay(self) -> float:
-        """Calculate exponential backoff delay based on retry count."""
-        if self.retry_count == 0:
-            return self.base_delay
-        
-        # Exponential backoff with jitter
-        import random
-        max_delay = min(60, self.base_delay * (2 ** self.retry_count))  # Cap at 60 seconds
-        jitter = random.uniform(0.8, 1.2)  # Add 20% jitter
-        delay = max_delay * jitter
-        
-        logger.info(f"Backoff delay: {delay:.2f} seconds (retry {self.retry_count}/{self.max_retry_count})")
-        return delay
-    
-    def process_cycle(self, meeting_id: str, zoom_token: str, segment_duration: int) -> bool:
-        """Process one cycle of recording, transcribing, and posting poll."""
-        try:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                console=console
-            ) as progress:
-                # 1) Record
-                progress.add_task("🎙️ Recording audio...", total=None)
-                record_success = record_segment(segment_duration, output="segment.wav")
-                if not record_success:
-                    logger.error("Failed to record audio")
-                    return False
-
-                # 2) Transcribe
-                progress.add_task("🧠 Transcribing with Whisper...", total=None)
-                transcript_result = self.whisper.transcribe_audio("segment.wav")
-                transcript = transcript_result.get("text", "").strip()
-                if not transcript:
-                    logger.warning("No speech detected in audio")
-                    return False
-
-                console.print(Panel(transcript, title="📝 Transcript", width=80))
-
-                # 3) Generate poll
-                progress.add_task("🤖 Generating poll via LLaMA 3.2...", total=None)
-                title, question, options = generate_poll_from_transcript(transcript)
-                console.print(Panel(
-                    f"[bold]{title}[/bold]\n\n{question}\n\n" + "\n".join(f"- {o}" for o in options),
-                    title="❓ Poll Preview",
-                    width=80
-                ))
-
-                # 4) Post poll
-                progress.add_task("📤 Posting poll to Zoom...", total=None)
-                success = post_poll_to_zoom(title, question, options, meeting_id, zoom_token)
-                if success:
-                    logger.info("Poll posted successfully")
-                    console.print("[green]✅ Poll posted successfully![/]")
-                    self.retry_count = 0  # Reset retry count on success
-                    return True
-                else:
-                    logger.error("Failed to post poll to Zoom")
-                    console.print("[red]❌ Failed to post poll to Zoom[/]")
-                    self.retry_count += 1
-                    return False
-                
-        except Exception as e:
-            logger.error(f"Error in process cycle: {str(e)}", exc_info=True)
-            self.retry_count += 1
-            return False
+    # cleanup_files method removed
+    # calculate_backoff_delay method removed
+    # process_cycle method removed
     
     def run(self):
-        """Main run loop."""
+        """Main run loop using MeetingRecorder."""
         if not self.check_environment():
+            logger.error("Environment check failed. Exiting run.")
             return
 
-        meeting_id = os.getenv("MEETING_ID")
-        zoom_token = os.getenv("ZOOM_TOKEN")
-        segment_duration = int(os.getenv("SEGMENT_DURATION", "30"))
+        meeting_id_env = os.getenv("MEETING_ID")
+        zoom_token_env = os.getenv("ZOOM_TOKEN")
+        # segment_duration is handled by MeetingRecorder internally.
 
-        cycle = 1
-        console.print(Panel("[bold green]Zoom Poll Automator Started[/bold green]\nPress Ctrl+C to stop", title="▶️ Live"))
-
+        console.print(Panel("[bold green]Zoom Poll Automator Started with MeetingRecorder[/bold green]\nPress Ctrl+C to stop", title="▶️ Live"))
+        
+        recorder = None
         try:
-            while self.running:
-                success = self.process_cycle(meeting_id, zoom_token, segment_duration)
-                
-                # Cleanup
-                self.cleanup_files()
-                
-                if success:
-                    cycle += 1
-                    if self.test_mode:
-                        logger.info("Test mode: Exiting after successful cycle")
-                        console.print("\n[green]Test cycle completed successfully. Exiting.[/green]")
-                        break
-                    
-                    console.print(f"\n[dim]Completed cycle {cycle}. Waiting 5s before next cycle...[/dim]")
-                    time.sleep(5)
-                else:
-                    delay = self.calculate_backoff_delay()
-                    console.print(f"\n[yellow]Waiting {delay:.1f}s before retrying...[/yellow]")
-                    
-                    if self.retry_count >= self.max_retry_count:
-                        logger.error(f"Maximum retry count reached ({self.max_retry_count}). Stopping.")
-                        console.print("\n[red]Maximum retry count reached. Stopping automation.[/red]")
-                        break
-                        
-                    time.sleep(delay)
+            # Using default device_name=None. Add CLI arg for device if needed.
+            recorder = MeetingRecorder(device_name=None) 
+            logger.info("MeetingRecorder initialized.")
 
+            def post_new_poll_callback(poll_data):
+                """Callback function to post new polls to Zoom."""
+                logger.info(f"Callback triggered for new poll: {poll_data.get('title')}")
+                try:
+                    success = post_poll_to_zoom(
+                        title=poll_data['title'],
+                        question=poll_data['question'],
+                        options=poll_data['options'],
+                        meeting_id=meeting_id_env,
+                        token=zoom_token_env
+                    )
+                    if success:
+                        logger.info(f"Poll '{poll_data['title']}' posted to Zoom successfully via callback.")
+                        console.print(f"[green]🚀 Poll '{poll_data['title']}' posted to Zoom.[/green]")
+                    else:
+                        logger.warning(f"Failed to post poll '{poll_data['title']}' to Zoom via callback.")
+                        console.print(f"[yellow]⚠️ Failed to post poll '{poll_data['title']}' to Zoom.[/yellow]")
+                except Exception as e:
+                    logger.error(f"Error in poll posting callback for '{poll_data['title']}': {e}", exc_info=True)
+                    console.print(f"[red]❌ Error posting poll '{poll_data['title']}': {e}[/]")
+
+            recorder.on_poll_created = post_new_poll_callback
+            logger.info("Poll creation callback assigned to MeetingRecorder.")
+
+            if not recorder.start_recording():
+                logger.error("Failed to start MeetingRecorder.")
+                console.print("[red]❌ Failed to start MeetingRecorder. Exiting.[/red]")
+                return
+            
+            logger.info("MeetingRecorder started successfully. Running until stop signal.")
+
+            # Main loop: keep alive while MeetingRecorder works in threads
+            while self.running:  # self.running is controlled by signal handlers
+                time.sleep(1)
+            logger.info("Loop terminated due to self.running becoming false (likely shutdown signal).")
+
+        except KeyboardInterrupt:
+            logger.info("KeyboardInterrupt received, initiating graceful shutdown...")
+            console.print("\n[yellow]KeyboardInterrupt received. Shutting down...[/yellow]")
+            # self.running will be set to False by signal handler or already False
         except Exception as e:
-            logger.error(f"Unexpected error in main loop: {str(e)}", exc_info=True)
-            console.print(f"\n[bold red]Error: {str(e)}[/bold red]")
+            logger.error(f"Unexpected error in main run loop: {str(e)}", exc_info=True)
+            console.print(f"\n[bold red]An unexpected error occurred: {str(e)}[/bold red]")
         finally:
-            self.cleanup_files()
-            self.whisper.cleanup()
-            console.print("\n[bold red]Stopped. Goodbye![/bold red]")
+            if recorder:
+                logger.info("Stopping MeetingRecorder...")
+                recorder.stop_recording()
+                logger.info("MeetingRecorder stopped.")
+                recorder.close()
+                logger.info("MeetingRecorder resources closed.")
+            # self.whisper.cleanup() # Removed as self.whisper is removed
+            console.print("\n[bold red]Zoom Poll Automator stopped. Goodbye![/bold red]")
 
 def parse_args():
     """Parse command line arguments."""

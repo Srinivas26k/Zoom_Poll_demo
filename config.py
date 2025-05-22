@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 from dotenv import load_dotenv
 from typing import Dict, Any
-from functools import lru_cache
+# from functools import lru_cache # Unused
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,15 +43,9 @@ def validate_config() -> Dict[str, Any]:
         "REDIRECT_URI": "OAuth Redirect URI",
     }
     
-    optional_vars = {
-        "GEMINI_API_KEY": "Google Gemini API Key",
-        "LLAMA_HOST": "Ollama Host",
-    }
-    
     missing_vars = []
     config = {}
     
-    # Check required variables
     for var, description in required_vars.items():
         value = os.getenv(var)
         if not value:
@@ -62,10 +56,6 @@ def validate_config() -> Dict[str, Any]:
         error_msg = f"Missing required configuration: {', '.join(missing_vars)}"
         logger.error(error_msg)
         raise ValueError(error_msg)
-    
-    # Add optional variables
-    for var, description in optional_vars.items():
-        config[var] = os.getenv(var)
     
     return config
 
@@ -88,7 +78,7 @@ def setup_config() -> None:
     
     # Set global variables
     global CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, FLASK_SECRET_KEY, VERIFICATION_TOKEN
-    global LLAMA_HOST_BASE, LLAMA_HOST, OLLAMA_API, GEMINI_API_KEY
+    global LLAMA_HOST_BASE, LLAMA_HOST, OLLAMA_API
     
     CLIENT_ID = config["CLIENT_ID"]
     CLIENT_SECRET = config["CLIENT_SECRET"]
@@ -103,6 +93,3 @@ def setup_config() -> None:
     LLAMA_HOST_BASE = os.getenv("LLAMA_HOST", "http://localhost:11434").rstrip('/')
     LLAMA_HOST = f"{LLAMA_HOST_BASE}/v1"  # For OpenAI client compatibility
     OLLAMA_API = LLAMA_HOST_BASE  # For direct Ollama API calls
-    
-    # Get Gemini API key
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")

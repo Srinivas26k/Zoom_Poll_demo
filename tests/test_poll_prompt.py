@@ -45,7 +45,10 @@ class TestPollPrompt:
         result = generate_poll(transcript)
         
         # Verify result
-        assert result["title"] == "Technology Trends Poll"
+        # This test simulates the LLM response *missing* a title.
+        # The generate_poll function should then provide a default title.
+        # The current default title in poll_prompt.py is "Meeting Poll".
+        assert result["title"] == "Meeting Poll" 
         assert len(result["questions"]) == 1
         assert result["questions"][0]["type"] == "single"
         assert len(result["questions"][0]["answers"]) == 4

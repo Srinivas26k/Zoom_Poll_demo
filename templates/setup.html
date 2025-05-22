@@ -217,6 +217,24 @@
                 <div class="help-text">Select the audio device that will capture your Zoom meeting audio</div>
             </div>
 
+            <div class="form-group">
+                <label>Audio Source:</label>
+                <div class="radio-group">
+                    <label>
+                        <input type="radio" name="audio_source" value="host" checked>
+                        Host Audio Only
+                    </label>
+                    <div class="help-text">Record only the host's audio for transcription and poll generation</div>
+                </div>
+                <div class="radio-group">
+                    <label>
+                        <input type="radio" name="audio_source" value="all">
+                        Complete Meeting Audio
+                    </label>
+                    <div class="help-text">Record all participants' audio for transcription and poll generation</div>
+                </div>
+            </div>
+
             <div class="nav">
                 <button type="submit" class="button start">Start Automation</button>
                 <a href="{{ url_for('index') }}" class="button secondary">Back to Home</a>

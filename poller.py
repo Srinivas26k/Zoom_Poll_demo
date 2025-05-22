@@ -41,13 +41,18 @@ def post_poll_to_meeting(meeting_id: str, poll_data: Dict[str, Any], token: str)
     
     try:
         response = requests.post(url, headers=headers, json=poll_data, timeout=30)
-        if response.status_code in (200, 201):
-            return response.json()
-        else:
-            logger.error(f"Zoom API error: {response.status_code} - {response.text}")
-            return None
-    except Exception as e:
-        logger.error(f"Error posting poll to Zoom meeting: {str(e)}")
+        response = requests.post(url, headers=headers, json=poll_data, timeout=30) # Timeout is already here
+        response.raise_for_status() # Raises HTTPError for bad responses (4xx or 5xx)
+        logger.info(f"Poll data posted successfully to Zoom meeting {meeting_id}. Response status: {response.status_code}")
+        return response.json()
+    except requests.exceptions.HTTPError as http_err:
+        logger.error(f"Zoom API HTTP error in post_poll_to_meeting: {http_err}. Response: {http_err.response.text if http_err.response else 'No response'}", exc_info=True)
+        return None
+    except requests.exceptions.RequestException as req_err:
+        logger.error(f"Request error in post_poll_to_meeting for meeting {meeting_id}: {req_err}", exc_info=True)
+        return None
+    except Exception as e: # General fallback
+        logger.error(f"Error posting poll to Zoom meeting {meeting_id}: {str(e)}", exc_info=True)
         return None
 
 def extract_json_from_text(text):
@@ -73,7 +78,7 @@ def extract_json_from_text(text):
     
     return None
 
-def generate_poll_from_transcript(transcript: str) -> tuple[str, str, list[str]]:
+def generate_poll_from_transcript(transcript: str) -> tuple[Optional[str], Optional[str], Optional[list[str]]]:
     """
     Generate a poll from a transcript using LLaMA and the imported prompt.
 
@@ -81,33 +86,42 @@ def generate_poll_from_transcript(transcript: str) -> tuple[str, str, list[str]]
         transcript (str): The meeting transcript to analyze.
 
     Returns:
-        tuple: (title, question, options) of the generated poll.
+        tuple: (title, question, options) of the generated poll, or (None, None, None) if no poll can be generated.
     """
     # Clean and prepare the transcript
     clean_transcript = transcript.strip()
-    if not clean_transcript:
-        console.log("[yellow]⚠️ Empty transcript provided[/]")
-        return ("Meeting Poll", "What was discussed?", 
-                ["Option 1", "Option 2", "Option 3", "Option 4"])
+    if not clean_transcript or len(clean_transcript.split()) < 10:  # Ensure at least a few words
+        logger.warning("Transcript too short or empty. No poll will be generated.") # Changed to logger
+        # console.log("[yellow]⚠️ Transcript too short or empty. No poll will be generated.[/]") # Retain console for direct user feedback if needed, or remove
+        return None, None, None
     
     # Combine the prompt with the transcript
     full_prompt = POLL_PROMPT.replace("[Insert transcript here]", clean_transcript)
-    console.log("🤖 Generating poll from transcript…")
-    console.log(f"📝 Transcript length: {len(clean_transcript)} characters")
+    logger.info("🤖 Generating poll from transcript…") # Changed to logger
+    logger.debug(f"📝 Transcript length: {len(clean_transcript)} characters") # Changed to logger.debug
 
     try:
-        # Request poll from LLaMA with higher temperature for more creative options
-        # but lower max_tokens to focus the response
-        resp = llama.chat.completions.create(
-            model="llama3.2:latest",
-            messages=[{"role": "user", "content": full_prompt}],
-            temperature=0.7,
-            max_tokens=800,  # Increased to allow for complete responses
-            response_format={"type": "json_object"}  # Request JSON response
-        )
-        raw_response = resp.choices[0].message.content.strip()
-        console.log(f"📥 LLaMA raw response received ({len(raw_response)} chars)")
+        raw_response = None # Initialize
+        try:
+            # Request poll from LLaMA
+            resp = llama.chat.completions.create(
+                model="llama3.2:latest", # Ensure this model name is correct for your Ollama setup
+                messages=[{"role": "user", "content": full_prompt}],
+                temperature=0.7,
+                max_tokens=800,
+                response_format={"type": "json_object"}
+            )
+            raw_response = resp.choices[0].message.content.strip()
+            logger.info(f"📥 LLaMA raw response received ({len(raw_response)} chars)") # Changed to logger
+        except OpenAI.APIError as api_err: 
+            logger.error(f"Ollama API error in generate_poll_from_transcript: {api_err}", exc_info=True)
+            # Fallback response
+            return "Meeting Discussion Poll", "What topic should we focus on next?", ["Continue current discussion", "Move to next agenda item", "Take questions", "Summarize"]
         
+        if not raw_response: # If APIError occurred or response was empty
+             logger.warning("No response from LLaMA API or APIError caught, returning fallback poll.")
+             return "Meeting Discussion Poll", "What topic should we focus on next?", ["Continue current discussion", "Move to next agenda item", "Take questions", "Summarize"]
+
         # Try to extract JSON from the response
         poll_data = extract_json_from_text(raw_response)
         
@@ -115,10 +129,14 @@ def generate_poll_from_transcript(transcript: str) -> tuple[str, str, list[str]]
         if poll_data is None:
             try:
                 poll_data = json.loads(raw_response)
-            except json.JSONDecodeError as e:
-                console.log(f"[yellow]⚠️ JSON parsing error:[/] {e}")
-                console.log(f"Raw response: {raw_response[:100]}...")
-                raise
+            except json.JSONDecodeError as e_json: # Specific variable name for this error
+                logger.error(f"JSON parsing error in generate_poll_from_transcript: {e_json}. Raw response: {raw_response[:200]}...", exc_info=True)
+                # Fallback response if JSON parsing fails
+                return "Meeting Discussion Poll", "What topic should we focus on next?", ["Continue current discussion", "Move to next agenda item", "Take questions", "Summarize"]
+        
+        if poll_data is None: # If extract_json_from_text returned None and direct parse was not attempted or failed before this.
+            logger.error(f"Could not parse JSON from LLaMA response. Raw response: {raw_response[:200]}...")
+            return "Meeting Discussion Poll", "What topic should we focus on next?", ["Continue current discussion", "Move to next agenda item", "Take questions", "Summarize"]
 
         # Extract and validate components
         title = poll_data.get("title")
@@ -127,21 +145,21 @@ def generate_poll_from_transcript(transcript: str) -> tuple[str, str, list[str]]
         
         # Validate title and question
         if not title or not isinstance(title, str):
-            console.log("[yellow]⚠️ Invalid or missing title, using default[/]")
+            logger.warning("Invalid or missing title from LLM, using default.") # Changed to logger
             title = "Meeting Poll"
         
         if not question or not isinstance(question, str):
-            console.log("[yellow]⚠️ Invalid or missing question, using default[/]")
+            logger.warning("Invalid or missing question from LLM, using default.") # Changed to logger
             question = "What was the main topic discussed?"
         
         # Validate and adjust options to ensure exactly 4
         if not isinstance(options, list):
-            console.log("[yellow]⚠️ Options are not a list, creating defaults[/]")
+            logger.warning("Options from LLM are not a list, creating defaults.") # Changed to logger
             options = []
             
         # Make sure we have exactly 4 options
         if len(options) > 4:
-            console.log(f"[yellow]⚠️ Too many options ({len(options)}), truncating to 4[/]")
+            logger.warning(f"Too many options ({len(options)}) from LLM, truncating to 4.") # Changed to logger
             options = options[:4]
             
         while len(options) < 4:
@@ -159,15 +177,17 @@ def generate_poll_from_transcript(transcript: str) -> tuple[str, str, list[str]]
                 options.append(f"Additional point from discussion {len(options) + 1}")
         
         # Log success
-        console.log(f"[green]✅ Successfully generated poll:[/]")
-        console.log(f"Title: {title}")
-        console.log(f"Question: {question}")
-        console.log(f"Options: {options}")
+        logger.info(f"✅ Successfully generated poll: Title='{title}', Question='{question}', Options={options}") # Changed to logger
+        # console.log(f"[green]✅ Successfully generated poll:[/]") # Retain if CLI feedback for this is desired
+        # console.log(f"Title: {title}")
+        # console.log(f"Question: {question}")
+        # console.log(f"Options: {options}")
         
         return title, question, options
 
-    except Exception as e:
-        console.log(f"[red]❌ Poll generation error:[/] {e}")
+    except Exception as e: # General fallback for other unexpected errors
+        logger.error(f"Poll generation error in generate_poll_from_transcript: {e}", exc_info=True)
+        # console.log(f"[red]❌ Poll generation error (see logs for details):[/] {e}") # Retain if CLI feedback for this is desired
         
         # Create a fallback poll that indicates there was an error
         fallback_title = "Meeting Discussion Poll"
@@ -201,13 +221,21 @@ def launch_poll(meeting_id: str, poll_id: str, token: str) -> bool:
 
     try:
         response = requests.post(url, headers=headers)
-        if response.status_code == 200:
-            console.log(f"[green]✅ Poll launched successfully[/]")
-            return True
-        else:
-            console.log(f"[red]❌ Failed to launch poll[/]: {response.status_code} {response.text}")
-            return False
-    except Exception as e:
+        response = requests.post(url, headers=headers, timeout=30) # Added timeout
+        response.raise_for_status() # Check for HTTP errors
+        logger.info(f"Poll {poll_id} launched successfully for meeting {meeting_id}.") # Added logging
+        console.log(f"[green]✅ Poll launched successfully[/]")
+        return True
+    except requests.exceptions.HTTPError as http_err: # Specific handling for HTTP errors
+        logger.error(f"Zoom API HTTP error launching poll: {http_err}. Response: {http_err.response.text if http_err.response else 'No response'}", exc_info=True)
+        console.log(f"[red]❌ Failed to launch poll[/]: {http_err.response.status_code if http_err.response else 'N/A'} {http_err.response.text if http_err.response else 'No response text'}")
+        return False
+    except requests.exceptions.RequestException as req_err: # Specific handling for other request errors
+        logger.error(f"Request error launching poll {poll_id} for meeting {meeting_id}: {req_err}", exc_info=True)
+        console.log(f"[red]❌ Poll launch error (network issue)[/]: {req_err}")
+        return False
+    except Exception as e: # General fallback
+        logger.error(f"Unexpected error launching poll {poll_id} for meeting {meeting_id}: {e}", exc_info=True) # Added exc_info=True
         console.log(f"[red]❌ Poll launch error[/]: {e}")
         return False
 
@@ -248,22 +276,32 @@ def post_poll_to_zoom(title: str, question: str, options: list[str], meeting_id:
     }
 
     console.log(f"📤 Posting poll to Zoom: {title} - {question}")
-    console.log(f"Options: {options}")
+    logger.debug(f"📤 Posting poll to Zoom: Title='{title}', Question='{question}', Options={options}") # Changed to logger.debug
+    # console.log(f"📤 Posting poll to Zoom: {title} - {question}") # Retain if CLI feedback desired
+    # console.log(f"Options: {options}") # Retain if CLI feedback desired
 
     try:
         response = requests.post(url, headers=headers, json=payload)
-        if response.status_code == 201:
-            poll_data = response.json()
-            console.log(f"[green]✅ Poll posted successfully[/]: {poll_data}")
-            
-            # For meetings, the poll must be launched manually by the host in the Zoom client.
-            console.log("[yellow]Poll created. Please launch it manually from the Zoom client.[/]")
-            return True
-        else:
-            console.log(f"[red]❌ Zoom API error[/]: {response.status_code} {response.text}")
-            return False
-    except Exception as e:
-        console.log(f"[red]❌ Poll posting error[/]: {e}")
+        response = requests.post(url, headers=headers, json=payload, timeout=30) # Added timeout
+        response.raise_for_status() # Check for HTTP errors
+
+        poll_data_response = response.json() # Renamed variable
+        logger.info(f"Poll '{title}' posted successfully to meeting {meeting_id}. Poll ID: {poll_data_response.get('id')}") # Added logging
+        # console.log(f"[green]✅ Poll posted successfully[/]: {poll_data_response}") # Retain if CLI feedback desired
+        # console.log("[yellow]Poll created. Please launch it manually from the Zoom client.[/]") # Retain if CLI feedback desired
+        return True
+        
+    except requests.exceptions.HTTPError as http_err: # Specific handling for HTTP errors
+        logger.error(f"Zoom API HTTP error posting poll: {http_err}. Response: {http_err.response.text if http_err.response else 'No response'}", exc_info=True)
+        # console.log(f"[red]❌ Zoom API error[/]: {http_err.response.status_code if http_err.response else 'N/A'} {http_err.response.text if http_err.response else 'No response text'}")
+        return False
+    except requests.exceptions.RequestException as req_err: # Specific handling for other request errors
+        logger.error(f"Request error posting poll to meeting {meeting_id}: {req_err}", exc_info=True)
+        # console.log(f"[red]❌ Poll posting error (network issue)[/]: {req_err}")
+        return False
+    except Exception as e: # General fallback
+        logger.error(f"Unexpected error posting poll to meeting {meeting_id}: {e}", exc_info=True) # Added exc_info=True
+        # console.log(f"[red]❌ Poll posting error[/]: {e}")
         return False
 
 def is_meaningful_text(text: str) -> bool:
@@ -285,97 +323,68 @@ def clean_text(text: str) -> str:
     cleaned = re.sub(r'\b(um|uh|like|you know|I mean)\b', '', cleaned, flags=re.IGNORECASE)
     return cleaned
 
-def generate_poll_with_llama(transcription: str) -> Optional[Dict[str, Any]]:
-    """Generate a poll based on the meeting transcription using Llama API"""
-    if not is_meaningful_text(transcription):
-        logger.warning("Transcription doesn't contain enough meaningful content for a poll")
-        return None
-    
-    # Clean the transcription
-    cleaned_text = clean_text(transcription)
-    
-    # Extract key topics and themes
-    topics = extract_key_topics(cleaned_text)
-    if not topics:
-        topics = "the current discussion"
-    
-    # Create a structured prompt for the LLM
-    prompt = f"""You are an AI assistant that creates relevant polls for Zoom meetings.
-
-MEETING TRANSCRIPT:
----
-{cleaned_text}
----
-
-KEY TOPICS FROM TRANSCRIPT: {topics}
-
-Create ONE poll question with exactly 4 answer options based STRICTLY on the actual content of the meeting transcript above.
-The poll must ONLY address topics that were explicitly discussed in the transcript.
-DO NOT introduce new topics or concepts not mentioned in the transcript.
-
-Your response should be in this JSON format with no other text:
-{{
-  "title": "Brief descriptive title",
-  "question": "A clear question about a specific topic from the transcript?",
-  "options": ["Option 1", "Option 2", "Option 3", "Option 4"]
-}}
-
-Make sure the question and options are directly related to the content in the transcript.
-"""
-    
-    # Prepare the request
-    headers = {
-        "Content-Type": "application/json"
-    }
-    
-    # Check if we're using local or remote Llama
-    if hasattr(config, "LLAMA_HOST") and config.LLAMA_HOST:
-        try:
-            # Local Ollama setup
-            url = f"{config.LLAMA_HOST}/api/generate"
-            data = {
-                "model": "llama3.2",
-                "prompt": prompt,
-                "temperature": 0.7,
-                "max_tokens": 500
-            }
-            
-            logger.info(f"Requesting poll from LLaMA at {url}")
-            response = requests.post(url, headers=headers, json=data, timeout=60)
-            response.raise_for_status()
-            
-            result = response.json()
-            raw_text = result.get('response', '')
-            logger.info(f"📥 LLaMA raw response received ({len(raw_text)} chars)")
-            
-            # Try to extract JSON
-            return extract_json_from_text(raw_text)
-            
-        except Exception as e:
-            logger.error(f"Error generating poll with Llama: {str(e)}")
-            return None
-    else:
-        logger.error("LLAMA_HOST not configured")
-        return None
+# Deprecated function generate_poll_with_llama removed.
 
 def extract_key_topics(text: str) -> str:
-    """Extract key topics from the transcript"""
-    # Simple keyword extraction
-    words = re.findall(r'\b\w{4,}\b', text.lower())
-    word_counts = {}
-    for word in words:
-        if word not in ['that', 'this', 'with', 'from', 'have', 'what', 'when', 'where']:
+    """Extract key topics from the transcript for better context"""
+    try:
+        # Simple keyword extraction with better filtering
+        if not text:
+            return "the main subject"
+
+        # Convert to lowercase
+        text = text.lower()
+
+        # Remove punctuation (simplified)
+        text = re.sub(r'[^\\w\\s]', '', text)
+
+        # Common English stop words (a basic list)
+        stop_words = set([
+            "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours",
+            "yourself", "yourselves", "he", "him", "his", "himself", "she", "her", "hers",
+            "herself", "it", "its", "itself", "they", "them", "their", "theirs", "themselves",
+            "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are",
+            "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does",
+            "did", "doing", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until",
+            "while", "of", "at", "by", "for", "with", "about", "against", "between", "into",
+            "through", "during", "before", "after", "above", "below", "to", "from", "up", "down",
+            "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here",
+            "there", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more",
+            "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so",
+            "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now", "ll", 
+            "m", "o", "re", "ve", "y", "ain", "aren", "couldn", "didn", "doesn", "hadn", "hasn", 
+            "haven", "isn", "ma", "mightn", "mustn", "needn", "shan", "shouldn", "wasn", "weren", 
+            "won", "wouldn", "okay", "yeah", "yes", "right"
+        ])
+
+        words = text.split()
+        
+        # Filter out stop words and very short words
+        filtered_words = [word for word in words if word not in stop_words and len(word) > 2]
+
+        if not filtered_words:
+            return "the main subject" # Fallback if no meaningful words left
+
+        # Count word frequencies
+        word_counts = {}
+        for word in filtered_words:
             word_counts[word] = word_counts.get(word, 0) + 1
-    
-    # Sort by frequency
-    sorted_words = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
-    
-    # Take top 5 keywords
-    top_keywords = [word for word, count in sorted_words[:5]]
-    
-    if top_keywords:
-        return ", ".join(top_keywords)
-    return ""
+        
+        # Sort words by frequency in descending order
+        sorted_words = sorted(word_counts.items(), key=lambda item: item[1], reverse=True)
+        
+        # Get the top 2-3 topics
+        num_topics = min(len(sorted_words), 3)
+        top_topics = [word[0] for word in sorted_words[:num_topics]]
+        
+        if not top_topics:
+             return "the main subject" # Fallback
+
+        return ", ".join(top_topics)
+
+    except Exception as e:
+        logger.error(f"Error extracting key topics: {str(e)}", exc_info=True) # Added exc_info=True
+        return "the main subject" # Fallback in case of any error
 
 def format_poll_for_zoom(poll_data: Dict[str, Any]) -> Dict[str, Any]:
     """Format poll data in the structure expected by Zoom API"""
@@ -436,10 +445,10 @@ def post_poll(poll_data: Dict[str, Any], meeting_id: str) -> Optional[Dict[str, 
 
 def generate_and_post_poll(transcription: str, meeting_id: str) -> Optional[Dict[str, Any]]:
     """Generate a poll based on transcription and post it to the Zoom meeting"""
-    # Generate poll data
-    poll_data = generate_poll_with_llama(transcription)
+    # Generate poll data using the primary function
+    title, question, options = generate_poll_from_transcript(transcription)
     
-    if not poll_data:
+    if not title or not question or not options: # Check if poll generation was successful
         logger.warning("Could not generate poll from transcription")
         return None
     
@@ -455,5 +464,14 @@ if __name__ == "__main__":
     or even consider a discount for annual subscriptions. What do you all think would work best?
     """
     
-    poll = generate_poll_with_llama(sample_text)
-    print(json.dumps(poll, indent=2))
+    # Updated to call generate_poll_from_transcript and handle its tuple response
+    title, question, options = generate_poll_from_transcript(sample_text)
+    if title and question and options:
+        poll_output = {
+            "title": title,
+            "question": question,
+            "options": options
+        }
+        print(json.dumps(poll_output, indent=2))
+    else:
+        print("Failed to generate poll from sample text.")

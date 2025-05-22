@@ -1,17 +1,14 @@
+# audio_capture.py
+"""
+Utility functions for listing and identifying audio devices.
+This module relies on the `sounddevice` library.
+"""
+
 import sounddevice as sd
-import soundfile as sf
-import numpy as np
-import librosa
 import logging
-from pathlib import Path
-from typing import Optional, List, Dict, Union, Any
+from typing import Optional, List, Dict, Union, Any # Union and Dict might be removed if get_device_by_name only returns AudioDevice
 from rich.console import Console
 from rich.logging import RichHandler
-import os
-import time
-import wave
-import threading
-import pyaudiowpatch as pyaudio  # Using pyaudiowpatch for system audio capture
 
 # Configure logging
 logging.basicConfig(
@@ -23,148 +20,87 @@ logger = logging.getLogger("audio_capture")
 console = Console()
 
 class AudioDevice:
+    """Data class representing an audio device."""
     def __init__(self, index: int, name: str, channels: int):
         self.index = index
         self.name = name
         self.channels = channels
     
     def __str__(self) -> str:
-        return f"{self.name} (Channels: {self.channels})"
+        return f"Index: {self.index}, Name: {self.name} (Input Channels: {self.channels})"
 
-class AudioCapture:
-    def __init__(self):
-        self.default_samplerate = 44100
-        self.default_channels = 2
-        self.target_samplerate = 16000
-        self.target_channels = 1
-        self.pa = pyaudio.PyAudio()
-    
-    def list_audio_devices(self) -> List[AudioDevice]:
-        """List all available audio input devices including system audio."""
-        devices = []
-        
-        try:
-            # List all devices including loopback devices
-            for i in range(self.pa.get_device_count()):
-                device_info = self.pa.get_device_info_by_index(i)
-                
-                # Include both regular input devices and loopback devices
-                if device_info['maxInputChannels'] > 0 or 'hostapi' in device_info:
-                    device = AudioDevice(
-                        index=i,
-                        name=device_info['name'],
-                        channels=device_info['maxInputChannels']
-                    )
-                    devices.append(device)
-                    logger.info(f"Found device: {device}")
-            
-            # Add virtual device for system audio capture
-            devices.append(AudioDevice(
-                index=-1,
-                name="System Audio (All Participants)",
-                channels=2
-            ))
-            
-        except Exception as e:
-            logger.error(f"Error listing audio devices: {str(e)}", exc_info=True)
-        
-        return devices
-
-    def record_segment(
-        self,
-        duration: int,
-        samplerate: int = 44100,
-        channels: int = 2,
-        output: str = "segment.wav",
-        device: Optional[Union[str, int, Dict[str, Any]]] = None
-    ) -> bool:
-        """Record audio segment including system audio."""
-        try:
-            # Setup audio stream for system audio capture
-            stream = self.pa.open(
-                format=pyaudio.paFloat32,
-                channels=channels,
-                rate=samplerate,
-                input=True,
-                input_device_index=self._get_device_index(device),
-                frames_per_buffer=1024,
-                stream_callback=None
-            )
-            
-            logger.info(f"Recording {duration}s @{samplerate}Hz, {channels} channels")
-            
-            frames = []
-            for _ in range(0, int(samplerate / 1024 * duration)):
-                data = stream.read(1024, exception_on_overflow=False)
-                frames.append(data)
-            
-            # Stop and close stream
-            stream.stop_stream()
-            stream.close()
-            
-            # Convert to numpy array
-            audio_data = np.frombuffer(b''.join(frames), dtype=np.float32)
-            
-            # Process audio for transcription
-            if channels > 1:
-                audio_data = audio_data.reshape(-1, channels)
-                audio_data = audio_data.mean(axis=1)  # Convert to mono
-            
-            # Resample if needed
-            if samplerate != self.target_samplerate:
-                audio_data = librosa.resample(
-                    audio_data,
-                    orig_sr=samplerate,
-                    target_sr=self.target_samplerate
-                )
-            
-            # Normalize audio
-            audio_data = librosa.util.normalize(audio_data)
-            
-            # Save processed audio
-            sf.write(output, audio_data, self.target_samplerate, 'PCM_16')
-            logger.info(f"Saved processed audio to {output}")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error during audio recording/processing: {str(e)}", exc_info=True)
-            return False
-
-    def _get_device_index(self, device_spec: Union[str, int, Dict[str, Any], None]) -> Optional[int]:
-        """Get device index, handling system audio capture device."""
-        if device_spec is None:
-            return None
-            
-        if isinstance(device_spec, dict) and device_spec.get('name') == "System Audio (All Participants)":
-            # Find the appropriate system audio capture device
-            for i in range(self.pa.get_device_count()):
-                device_info = self.pa.get_device_info_by_index(i)
-                if 'hostapi' in device_info and device_info.get('isLoopbackDevice', False):
-                    return i
-            return None
-            
-        if isinstance(device_spec, (int, str)):
-            return device_spec
-            
-        return None
-
-    def __del__(self):
-        """Cleanup PyAudio."""
-        if hasattr(self, 'pa'):
-            self.pa.terminate()
-
-# Convenience functions
 def list_audio_devices() -> List[AudioDevice]:
-    """List available audio devices."""
-    return AudioCapture().list_audio_devices()
+    """
+    List all available audio input devices.
+    
+    Returns:
+        List[AudioDevice]: A list of available audio input devices.
+    """
+    try:
+        devices = sd.query_devices()
+        input_devices = []
+        
+        for i, dev_info in enumerate(devices):
+            if dev_info['max_input_channels'] > 0:  # Only show input devices
+                device = AudioDevice(
+                    index=i,
+                    name=str(dev_info['name']),
+                    channels=int(dev_info['max_input_channels'])
+                )
+                input_devices.append(device)
+                # logger.debug(f"Found input device: {device}") # Use debug for less verbose logging
+        
+        if not input_devices:
+            logger.warning("No audio input devices found.")
+        
+        return input_devices
+        
+    except Exception as e:
+        logger.error(f"Error listing audio devices: {str(e)}", exc_info=True)
+        return []
 
-def record_segment(
-    duration: int,
-    samplerate: int = 44100,
-    channels: int = 2,
-    output: str = "segment.wav",
-    device: Optional[Union[str, int, Dict[str, Any]]] = None
-) -> bool:
-    """Record an audio segment."""
-    return AudioCapture().record_segment(duration, samplerate, channels, output, device)
+def get_device_by_name(name_substring: str) -> Optional[AudioDevice]:
+    """
+    Find an audio input device by a substring of its name (case-insensitive).
+    
+    Args:
+        name_substring (str): A substring of the desired device's name.
+        
+    Returns:
+        Optional[AudioDevice]: The first matching AudioDevice, or None if not found.
+    """
+    if not name_substring:
+        logger.warning("Cannot search for device with an empty name substring.")
+        return None
+        
+    devices = list_audio_devices()
+    for device in devices:
+        if name_substring.lower() in device.name.lower():
+            logger.info(f"Found device matching '{name_substring}': {device}")
+            return device
+    logger.warning(f"No device found matching substring: '{name_substring}'")
+    return None
+
+if __name__ == "__main__":
+    console.print("[bold blue]Listing all available audio input devices:[/bold blue]")
+    all_devices = list_audio_devices()
+    if all_devices:
+        for device in all_devices:
+            console.print(f"  - {device}")
+    else:
+        console.print("[yellow]No audio input devices found.[/yellow]")
+
+    console.print("\n[bold blue]Attempting to find a device by name substring (e.g., 'microphone', 'stereo mix', 'default'):[/bold blue]")
+    # Example: Try to find a common microphone name part. User might need to change this.
+    test_substrings = ["microphone", "default", "stereo mix", "line in", "webcam"] 
+    found_specific_device = False
+    for sub in test_substrings:
+        console.print(f"Searching for device containing: '{sub}'")
+        specific_device = get_device_by_name(sub)
+        if specific_device:
+            console.print(f"  [green]Found:[/green] {specific_device}")
+            found_specific_device = True
+            break # Stop after finding one for the example
+    
+    if not found_specific_device:
+        console.print("[yellow]Could not find a device with common substrings. Your device names might be different.[/yellow]")

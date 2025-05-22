@@ -62,6 +62,21 @@ class WhisperTranscriber:
             
             transcription_time = time.time() - start_time
             logger.info(f"Transcription completed in {transcription_time:.2f} seconds")
+            
+            # Validate transcription quality
+            if not result.get("text"):
+                logger.error("Transcription resulted in empty text")
+                raise ValueError("Transcription resulted in empty text")
+                
+            # Log the actual transcript content
+            transcript = result.get("text", "").strip()
+            logger.info(f"Transcript content: {transcript[:200]}...")  # Log first 200 chars
+            logger.info(f"Total transcript length: {len(transcript)} characters")
+            
+            # Check for minimum content
+            if len(transcript) < 50:
+                logger.warning("Transcription is very short, may not be accurate")
+                
             return result
             
         except Exception as e:

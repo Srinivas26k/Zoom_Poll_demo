@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zoom Meeting Recorder</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+        }
+        .header {
+            margin-bottom: 30px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 20px;
+        }
+        .recording-indicator {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        .recording-on {
+            background-color: red;
+            animation: pulse 2s infinite;
+        }
+        .recording-off {
+            background-color: gray;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+        .transcript-container {
+            height: 400px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #eee;
+        }
+        .notes-container {
+            height: 300px;
+            overflow-y: auto;
+            background-color: #f9fbf0;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #eee;
+        }
+        .poll-container {
+            background-color: #f0f7fb;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #eee;
+            margin-bottom: 15px;
+        }
+        .transcript-segment {
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: white;
+            border-radius: 5px;
+            border-left: 3px solid #007bff;
+        }
+        .segment-timestamp {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .note-item {
+            background-color: #fffbea;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .note-timestamp {
+            font-size: 0.8rem;
+            color: #666;
+        }
+        .note-content {
+            margin-top: 5px;
+        }
+        .tag {
+            display: inline-block;
+            background-color: #eee;
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-size: 0.75rem;
+            margin-right: 5px;
+            color: #444;
+        }
+        .card-header {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+        .setup-warning {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .tab-content {
+            padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                <div class="recording-indicator recording-off" id="recordingIndicator"></div>
+                Zoom Meeting Recorder
+            </h1>
+            <p class="text-muted">Record, transcribe, and analyze your Zoom meetings with AI assistance.</p>
+        </div>
+
+        <div id="setupWarning" class="setup-warning d-none">
+            <h5>Setup required</h5>
+            <p id="setupMessage">Virtual audio capture is not properly configured.</p>
+            <button class="btn btn-outline-warning btn-sm" onclick="checkSetup()">Check Again</button>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">Recording Controls</div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="deviceSelect" class="form-label">Audio Device</label>
+                            <select class="form-select" id="deviceSelect">
+                                <option value="">Loading devices...</option>
+                            </select>
+                        </div>
+                        <div class="d-flex">
+                            <button id="startButton" class="btn btn-primary me-2" onclick="startRecording()">
+                                <i class="bi bi-record-circle"></i> Start Recording
+                            </button>
+                            <button id="stopButton" class="btn btn-danger" onclick="stopRecording()" disabled>
+                                <i class="bi bi-stop-circle"></i> Stop Recording
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">Recording Status</div>
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <span class="fw-bold">Status:</span>
+                            <span id="recordingStatus">Not recording</span>
+                        </div>
+                        <div class="mb-2">
+                            <span class="fw-bold">Meeting ID:</span>
+                            <span id="meetingId">-</span>
+                        </div>
+                        <div class="mb-2">
+                            <span class="fw-bold">Duration:</span>
+                            <span id="recordingDuration">00:00:00</span>
+                        </div>
+                        <div class="mb-2">
+                            <span class="fw-bold">Transcript size:</span>
+                            <span id="transcriptSize">0 characters</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <ul class="nav nav-tabs" id="myTab" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="transcript-tab" data-bs-toggle="tab" data-bs-target="#transcript" type="button" role="tab" aria-controls="transcript" aria-selected="true">Transcript</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="notes-tab" data-bs-toggle="tab" data-bs-target="#notes" type="button" role="tab" aria-controls="notes" aria-selected="false">AI Notes</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="polls-tab" data-bs-toggle="tab" data-bs-target="#polls" type="button" role="tab" aria-controls="polls" aria-selected="false">Polls</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="exports-tab" data-bs-toggle="tab" data-bs-target="#exports" type="button" role="tab" aria-controls="exports" aria-selected="false">Export</button>
+            </li>
+        </ul>
+        <div class="tab-content" id="myTabContent">
+            <div class="tab-pane fade show active" id="transcript" role="tabpanel" aria-labelledby="transcript-tab">
+                <div class="transcript-container" id="transcriptContainer">
+                    <p class="text-center text-muted">No transcript available yet. Start recording to begin transcription.</p>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="notes" role="tabpanel" aria-labelledby="notes-tab">
+                <div class="notes-container" id="notesContainer">
+                    <p class="text-center text-muted">No notes available yet. AI will generate notes as the meeting progresses.</p>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="polls" role="tabpanel" aria-labelledby="polls-tab">
+                <div id="pollsContainer">
+                    <p class="text-center text-muted">No polls available yet. AI will suggest polls based on meeting content.</p>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="exports" role="tabpanel" aria-labelledby="exports-tab">
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-header">Download Files</div>
+                            <div class="card-body">
+                                <div class="list-group" id="exportFilesList">
+                                    <p class="text-center text-muted">No files available yet. Complete a recording first.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">Meeting Summary</div>
+                            <div class="card-body">
+                                <div id="summaryContainer">
+                                    <p class="text-center text-muted">No summary available yet. Complete a recording first.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // State variables
+        let isRecording = false;
+        let recordingStartTime = null;
+        let recordingDurationInterval = null;
+        let pollRefreshInterval = null;
+        let lastMeetingId = null;
+        let completedRecordings = [];
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAudioDevices();
+            checkSetup();
+            checkRecordingStatus();
+        });
+
+        // Check if virtual audio setup is properly configured
+        async function checkSetup() {
+            try {
+                const response = await fetch('/record/setup');
+                const data = await response.json();
+                
+                const setupWarning = document.getElementById('setupWarning');
+                const setupMessage = document.getElementById('setupMessage');
+                
+                if (!data.success) {
+                    setupWarning.classList.remove('d-none');
+                    setupMessage.textContent = data.message;
+                } else {
+                    setupWarning.classList.add('d-none');
+                }
+            } catch (error) {
+                console.error('Error checking setup:', error);
+            }
+        }
+
+        // Load available audio devices for recording
+        async function loadAudioDevices() {
+            try {
+                const response = await fetch('/record/devices');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const deviceSelect = document.getElementById('deviceSelect');
+                    deviceSelect.innerHTML = '';
+                    
+                    // Add default option
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = 'Default device';
+                    deviceSelect.appendChild(defaultOption);
+                    
+                    // Add devices from the response
+                    data.devices.forEach(device => {
+                        const option = document.createElement('option');
+                        option.value = device.index;
+                        option.textContent = `${device.name} ${device.virtual ? '(Virtual)' : ''}`;
+                        if (device.virtual) {
+                            option.classList.add('text-success');
+                            option.selected = true; // Select virtual device by default
+                        }
+                        deviceSelect.appendChild(option);
+                    });
+                    
+                    // Show warning if no virtual audio devices are available
+                    if (!data.virtualAudioAvailable) {
+                        const setupWarning = document.getElementById('setupWarning');
+                        const setupMessage = document.getElementById('setupMessage');
+                        setupWarning.classList.remove('d-none');
+                        setupMessage.textContent = 'No virtual audio devices detected. For best results, install a virtual audio driver.';
+                    }
+                } else {
+                    console.error('Failed to load audio devices:', data.message);
+                }
+            } catch (error) {
+                console.error('Error loading audio devices:', error);
+            }
+        }
+
+        // Check if a recording is already in progress
+        async function checkRecordingStatus() {
+            try {
+                const response = await fetch('/record/status');
+                const data = await response.json();
+                
+                if (data.active) {
+                    // Recording is already in progress
+                    isRecording = true;
+                    lastMeetingId = data.meeting_id;
+                    updateRecordingUI(true);
+                    startTimers();
+                    refreshTranscript();
+                    refreshNotes();
+                } else {
+                    // No recording in progress
+                    isRecording = false;
+                    updateRecordingUI(false);
+                }
+            } catch (error) {
+                console.error('Error checking recording status:', error);
+            }
+        }
+
+        // Start recording a meeting
+        async function startRecording() {
+            try {
+                const deviceSelect = document.getElementById('deviceSelect');
+                const deviceIndex = deviceSelect.value;
+                
+                const response = await fetch('/record/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        device_index: deviceIndex || null
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isRecording = true;
+                    lastMeetingId = data.meeting_id;
+                    updateRecordingUI(true);
+                    startTimers();
+                    
+                    // Show success message
+                    alert('Recording started successfully!');
+                } else {
+                    alert(`Failed to start recording: ${data.message}`);
+                }
+            } catch (error) {
+                console.error('Error starting recording:', error);
+                alert('Error starting recording. Check console for details.');
+            }
+        }
+
+        // Stop the current recording
+        async function stopRecording() {
+            try {
+                const response = await fetch('/record/stop', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    isRecording = false;
+                    updateRecordingUI(false);
+                    stopTimers();
+                    
+                    // Add to completed recordings
+                    completedRecordings.push({
+                        meetingId: lastMeetingId,
+                        files: data.files
+                    });
+                    
+                    // Update exports tab
+                    updateExportsTab();
+                    
+                    // Show success message
+                    alert('Recording stopped successfully!');
+                } else {
+                    alert(`Failed to stop recording: ${data.message}`);
+                }
+            } catch (error) {
+                console.error('Error stopping recording:', error);
+                alert('Error stopping recording. Check console for details.');
+            }
+        }
+
+        // Update the UI to reflect recording state
+        function updateRecordingUI(recording) {
+            const recordingIndicator = document.getElementById('recordingIndicator');
+            const startButton = document.getElementById('startButton');
+            const stopButton = document.getElementById('stopButton');
+            const recordingStatus = document.getElementById('recordingStatus');
+            const meetingId = document.getElementById('meetingId');
+            
+            if (recording) {
+                // Recording is active
+                recordingIndicator.classList.remove('recording-off');
+                recordingIndicator.classList.add('recording-on');
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                recordingStatus.textContent = 'Recording in progress';
+                recordingStatus.classList.add('text-danger');
+                meetingId.textContent = lastMeetingId || '-';
+            } else {
+                // Recording is stopped
+                recordingIndicator.classList.remove('recording-on');
+                recordingIndicator.classList.add('recording-off');
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                recordingStatus.textContent = 'Not recording';
+                recordingStatus.classList.remove('text-danger');
+                meetingId.textContent = '-';
+                document.getElementById('recordingDuration').textContent = '00:00:00';
+                document.getElementById('transcriptSize').textContent = '0 characters';
+            }
+        }
+
+        // Start timers and refresh intervals
+        function startTimers() {
+            recordingStartTime = new Date();
+            
+            // Update duration display
+            recordingDurationInterval = setInterval(() => {
+                if (!recordingStartTime) return;
+                
+                const now = new Date();
+                const durationMs = now - recordingStartTime;
+                const durationFormatted = formatDuration(durationMs);
+                document.getElementById('recordingDuration').textContent = durationFormatted;
+            }, 1000);
+            
+            // Refresh transcript and notes periodically
+            pollRefreshInterval = setInterval(() => {
+                refreshTranscript();
+                refreshNotes();
+            }, 10000); // Every 10 seconds
+        }
+
+        // Stop all timers and intervals
+        function stopTimers() {
+            recordingStartTime = null;
+            
+            if (recordingDurationInterval) {
+                clearInterval(recordingDurationInterval);
+                recordingDurationInterval = null;
+            }
+            
+            if (pollRefreshInterval) {
+                clearInterval(pollRefreshInterval);
+                pollRefreshInterval = null;
+            }
+        }
+
+        // Format milliseconds as HH:MM:SS
+        function formatDuration(ms) {
+            const seconds = Math.floor((ms / 1000) % 60);
+            const minutes = Math.floor((ms / (1000 * 60)) % 60);
+            const hours = Math.floor(ms / (1000 * 60 * 60));
+            
+            return [
+                hours.toString().padStart(2, '0'),
+                minutes.toString().padStart(2, '0'),
+                seconds.toString().padStart(2, '0')
+            ].join(':');
+        }
+
+        // Refresh the transcript display
+        async function refreshTranscript() {
+            if (!isRecording && !lastMeetingId) return;
+            
+            try {
+                const response = await fetch('/record/transcript');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const transcriptContainer = document.getElementById('transcriptContainer');
+                    const transcriptSize = document.getElementById('transcriptSize');
+                    
+                    // Update transcript size
+                    transcriptSize.textContent = `${data.transcript.length} characters`;
+                    
+                    // Clear container
+                    transcriptContainer.innerHTML = '';
+                    
+                    if (data.segments.length === 0) {
+                        transcriptContainer.innerHTML = '<p class="text-center text-muted">No transcript available yet. The transcription will appear as the meeting progresses.</p>';
+                        return;
+                    }
+                    
+                    // Add segments
+                    data.segments.forEach(segment => {
+                        const segmentDiv = document.createElement('div');
+                        segmentDiv.className = 'transcript-segment';
+                        
+                        const timestamp = document.createElement('div');
+                        timestamp.className = 'segment-timestamp';
+                        timestamp.textContent = segment.timestamp;
+                        
+                        const text = document.createElement('div');
+                        text.textContent = segment.text;
+                        
+                        segmentDiv.appendChild(timestamp);
+                        segmentDiv.appendChild(text);
+                        transcriptContainer.appendChild(segmentDiv);
+                    });
+                    
+                    // Scroll to bottom
+                    transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+                }
+            } catch (error) {
+                console.error('Error refreshing transcript:', error);
+            }
+        }
+
+        // Refresh notes and polls
+        async function refreshNotes() {
+            if (!isRecording && !lastMeetingId) return;
+            
+            try {
+                const response = await fetch('/record/notes');
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Update notes
+                    const notesContainer = document.getElementById('notesContainer');
+                    notesContainer.innerHTML = '';
+                    
+                    if (data.notes.length === 0) {
+                        notesContainer.innerHTML = '<p class="text-center text-muted">No notes available yet. AI will generate notes as the meeting progresses.</p>';
+                    } else {
+                        data.notes.forEach(note => {
+                            const noteDiv = document.createElement('div');
+                            noteDiv.className = 'note-item';
+                            
+                            const timestamp = document.createElement('div');
+                            timestamp.className = 'note-timestamp';
+                            timestamp.textContent = note.timestamp;
+                            
+                            const content = document.createElement('div');
+                            content.className = 'note-content';
+                            content.textContent = note.content;
+                            
+                            const tagsContainer = document.createElement('div');
+                            tagsContainer.className = 'mt-2';
+                            
+                            if (note.tags && note.tags.length > 0) {
+                                note.tags.forEach(tag => {
+                                    const tagSpan = document.createElement('span');
+                                    tagSpan.className = 'tag';
+                                    tagSpan.textContent = tag;
+                                    tagsContainer.appendChild(tagSpan);
+                                });
+                            }
+                            
+                            noteDiv.appendChild(timestamp);
+                            noteDiv.appendChild(content);
+                            noteDiv.appendChild(tagsContainer);
+                            notesContainer.appendChild(noteDiv);
+                        });
+                    }
+                    
+                    // Update polls
+                    const pollsContainer = document.getElementById('pollsContainer');
+                    pollsContainer.innerHTML = '';
+                    
+                    if (data.polls.length === 0) {
+                        pollsContainer.innerHTML = '<p class="text-center text-muted">No polls available yet. AI will suggest polls based on meeting content.</p>';
+                    } else {
+                        data.polls.forEach(poll => {
+                            const pollDiv = document.createElement('div');
+                            pollDiv.className = 'poll-container';
+                            
+                            const title = document.createElement('h5');
+                            title.textContent = poll.title;
+                            
+                            const question = document.createElement('p');
+                            question.className = 'fw-bold';
+                            question.textContent = poll.question;
+                            
+                            const optionsList = document.createElement('ul');
+                            optionsList.className = 'list-group';
+                            
+                            poll.options.forEach(option => {
+                                const optionItem = document.createElement('li');
+                                optionItem.className = 'list-group-item';
+                                optionItem.textContent = option;
+                                optionsList.appendChild(optionItem);
+                            });
+                            
+                            const createBtn = document.createElement('button');
+                            createBtn.className = 'btn btn-primary btn-sm mt-3';
+                            createBtn.textContent = 'Create Poll in Zoom';
+                            createBtn.onclick = () => createZoomPoll(poll);
+                            
+                            pollDiv.appendChild(title);
+                            pollDiv.appendChild(question);
+                            pollDiv.appendChild(optionsList);
+                            pollDiv.appendChild(createBtn);
+                            pollsContainer.appendChild(pollDiv);
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error refreshing notes:', error);
+            }
+        }
+
+        // Create a poll in Zoom
+        function createZoomPoll(poll) {
+            // TODO: Implement Zoom poll creation via API
+            alert(`Creating poll in Zoom: ${poll.title}`);
+        }
+
+        // Update the exports tab with completed recordings
+        function updateExportsTab() {
+            const exportFilesList = document.getElementById('exportFilesList');
+            exportFilesList.innerHTML = '';
+            
+            if (completedRecordings.length === 0) {
+                exportFilesList.innerHTML = '<p class="text-center text-muted">No files available yet. Complete a recording first.</p>';
+                return;
+            }
+            
+            completedRecordings.forEach(recording => {
+                const filesListGroup = document.createElement('div');
+                filesListGroup.className = 'list-group-item';
+                
+                const meetingHeader = document.createElement('h6');
+                meetingHeader.textContent = `Meeting: ${recording.meetingId}`;
+                filesListGroup.appendChild(meetingHeader);
+                
+                const filesList = document.createElement('ul');
+                filesList.className = 'list-unstyled ms-3';
+                
+                for (const [key, path] of Object.entries(recording.files)) {
+                    if (key !== 'meeting_id') {
+                        const fileItem = document.createElement('li');
+                        
+                        const fileLink = document.createElement('a');
+                        fileLink.href = path;
+                        fileLink.textContent = `${key.charAt(0).toUpperCase() + key.slice(1)} File`;
+                        fileLink.download = path.split('/').pop();
+                        
+                        fileItem.appendChild(fileLink);
+                        filesList.appendChild(fileItem);
+                    }
+                }
+                
+                filesListGroup.appendChild(filesList);
+                exportFilesList.appendChild(filesListGroup);
+            });
+        }
+    </script>
+</body>
+</html>

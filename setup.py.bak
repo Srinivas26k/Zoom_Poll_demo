@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # setup.py - Setup script for Zoom Poll Automator
 
 import os
@@ -43,9 +44,6 @@ class SetupWizard:
             import torch
             import openai
             import rich
-            import pyaudio
-            import sounddevice
-            import whisper
             # If imports succeed, assume dependencies are mostly there
             return True
         except ImportError:
@@ -58,13 +56,15 @@ class SetupWizard:
             # Upgrade pip first
             progress.update(task_id, description="[bold blue]Upgrading pip...")
             subprocess.run([str(self.pip_path), "install", "--upgrade", "pip"], check=True, capture_output=True)
-            progress.update(task_id, description="[green]Pip upgraded successfully.[/green]")
 
             # Install requirements - output is captured to prevent clutter, errors will still raise
-            progress.update(task_id, description="[bold blue]Installing all dependencies from requirements.txt...")
-            subprocess.run([str(self.pip_path), "install", "-r", str(self.requirements_file)], check=True, capture_output=True)
+            progress.update(task_id, description="[bold blue]Installing dependencies from requirements.txt...")
+            # Install openai-whisper separately first as it caused issues before
+            subprocess.run([str(self.pip_path), "install", "git+https://github.com/openai/whisper.git"], check=True, capture_output=True)
+            # Install the rest, skipping openai-whisper dependencies to avoid conflicts
+            subprocess.run([str(self.pip_path), "install", "--no-deps", "-r", str(self.requirements_file)], check=True, capture_output=True)
 
-            progress.update(task_id, description="[bold green]Dependencies installed successfully from requirements.txt.")
+            progress.update(task_id, description="[bold green]Dependencies installed.")
             progress.remove_task(task_id)
             return True
         except subprocess.CalledProcessError as e:
@@ -86,15 +86,14 @@ class SetupWizard:
             progress.update(task_id, description="[bold green]FFmpeg found.")
             progress.remove_task(task_id)
             return True
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            progress.update(task_id, description="[bold yellow]FFmpeg not found.")
+        except (subprocess.CalledProcessError, FileNotFoundError):            progress.update(task_id, description="[bold yellow]FFmpeg not found.")
             progress.remove_task(task_id)
             console.print("[yellow]FFmpeg not found. Please install FFmpeg:[/]")
             console.print("  - Windows: Download from https://ffmpeg.org/download.html")
             console.print("  - macOS: brew install ffmpeg")
             console.print("  - Linux: sudo apt install ffmpeg")
-            return False
-
+                        return False
+            
     def check_ollama(self, progress: Progress) -> bool:
         """Check if Ollama is installed, running, and has llama3.2 model."""
         task_id = progress.add_task("[bold blue]Checking Ollama...", total=None)
@@ -108,6 +107,7 @@ class SetupWizard:
             console.print("[yellow]⚠️ Ollama not found in PATH. Some features may not work.[/]")
             console.print("  - To use LLM features, download Ollama from https://ollama.ai/download")
             return True  # Make this non-fatal
+            
         # If Ollama is in PATH, check if running and model is available
         try:
             progress.update(task_id, description="[bold blue]Checking Ollama server and model...")
@@ -125,7 +125,7 @@ class SetupWizard:
                 console.print("[yellow]⚠️ Could not connect to Ollama server.[/]")
                 console.print("Please ensure Ollama server is running (run 'ollama serve' in a separate terminal).")
                 return True  # Make this non-fatal
-
+                
             models = response.json().get("models", [])
             llama_available = any("llama3.2" in model.get("name", "") for model in models)
 
@@ -138,12 +138,11 @@ class SetupWizard:
                 progress.remove_task(task_id)
                 console.print("[yellow]⚠️ llama3.2 model not found in Ollama.[/]")
                 console.print("Attempting to pull the model...")
-                if self.pull_llama_model():
-                    console.print("[green]✓ llama3.2 model pulled successfully.[/]")
-                    return True
+                if self.pull_llama_model():                     console.print("[green]✓ llama3.2 model pulled successfully.[/]")
+                     return True
                 else:
-                    console.print("[red]Failed to pull llama3.2 model.[/]")
-                    return True  # Make this non-fatal too
+                     console.print("[red]Failed to pull llama3.2 model.[/]")
+                     return True  # Make this non-fatal too
 
         except requests.exceptions.ConnectionError:
             progress.update(task_id, description="[bold yellow]Could not connect to Ollama server.")
@@ -363,23 +362,14 @@ def main():
     try:
         wizard = SetupWizard()
         success = wizard.run()
-        if success:
-            console.print("\n[bold green]✓ Setup completed successfully![/bold green]")
-            console.print("\nTo start the application:")
-            console.print("1. The menu system will start automatically.")
-            console.print("2. If you need to restart later, run:")
-            console.print("   [bold cyan]python menu.py[/bold cyan]")
-            return 0
-        else:
-            console.print("\n[bold red]Setup failed. Please check the errors above.[/bold red]")
-            return 1
+        sys.exit(0 if success else 1)
     except KeyboardInterrupt:
         console.print("\n[yellow]Setup cancelled by user[/yellow]")
-        return 1
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Setup failed: {str(e)}", exc_info=True)
         console.print(f"[bold red]An unhandled error occurred during setup: {str(e)}[/bold red]")
-        return 1
+        sys.exit(1)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

@@ -62,3 +62,6 @@ Thumbs.db
 #docs
 suggest.md
 to-do.md
+
+.env
+

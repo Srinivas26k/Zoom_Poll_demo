@@ -4,66 +4,57 @@ import json
 import requests
 import logging
 from typing import Dict, Any, List, Optional
+import config # Added
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 POLL_PROMPT = """
-You are an expert meeting assistant tasked with creating a highly accurate and relevant poll based solely on the provided meeting transcript. Your objective is to generate a poll consisting of an eye-catching title, a specific question tied to the discussion, and exactly four distinct options, all derived directly from the transcript's content. The poll must reflect the key points, opinions, or decisions discussed, ensuring 100% relevance to the transcript without introducing external information or assumptions.
+You are an expert meeting assistant tasked with creating a poll based SOLELY on the provided meeting transcript. The poll must be 100% relevant to the transcript and ONLY contain information directly from the transcript.
 
-Follow these steps to generate the poll:
+##CRITICAL REQUIREMENTS##
+- EVERY element of the poll MUST come directly from the transcript
+- If the transcript doesn't have 4 distinct points, create a poll about the CENTRAL TOPIC instead with options about different aspects discussed
+- NEVER create options that weren't explicitly mentioned in the transcript
+- Poll must reflect ACTUAL discussion points, not hypothetical ones
+- The question must address a SPECIFIC issue/topic from the transcript, not a generic one
+- Title must directly relate to the main subject being discussed
 
-1. **Transcript Analysis**:
-   - Carefully read and analyze the entire transcript to understand its context, main topic, and key points.
-   - Identify the central theme or focus of the discussion (e.g., a decision to be made, a topic debated, or a key insight).
-   - Note any explicit statements, opinions, suggestions, or perspectives expressed by participants.
+##TRANSCRIPT ANALYSIS PROCESS##
+1. First, identify the CENTRAL TOPIC of discussion - what is being primarily discussed?
+2. Next, look for POINTS OF DECISION or DIFFERENT PERSPECTIVES on this topic
+3. Note any specific OPTIONS, ALTERNATIVES, or APPROACHES mentioned
+4. Identify any VARYING OPINIONS or PREFERENCES expressed by participants
+5. Look for any QUANTITATIVE DATA mentioned (e.g., timelines, percentages, metrics)
+6. Pay attention to SPECIFIC QUESTIONS asked by participants that received multiple responses
 
-2. **Title Generation**:
-   - Create a concise, engaging, and professional title that captures the essence of the discussion.
-   - Make the title eye-catching by highlighting the most interesting or significant aspect of the transcript (e.g., a point of contention, a critical decision, or a standout theme).
-   - Ensure the title is directly inspired by the transcript's content.
+##POLL CREATION GUIDELINES##
+- TITLE: Create a specific, engaging title that clearly identifies the exact topic from the transcript
+- QUESTION: Formulate a focused question about a specific decision point or area of discussion from the transcript
+- OPTIONS: Extract 4 distinct alternatives/perspectives that were ACTUALLY mentioned in the transcript
 
-3. **Question Formulation**:
-   - Formulate a clear and specific question that prompts participants to reflect on a significant aspect of the meeting.
-   - Tailor the question to the transcript's key focus, such as a decision needing input, a debated topic, or a critical takeaway.
-   - Avoid generic or pre-made questions; the question must be uniquely tied to the discussion.
+##QUALITY CHECKS##
+- Re-read the transcript after creating the poll to verify every element is directly traceable to transcript text
+- Confirm options are mutually exclusive when possible
+- Verify the question directly connects to the most important decision point or topic
+- Ensure the poll would make sense to meeting participants as a follow-up
 
-4. **Options Creation**:
-   - Select or summarize exactly four distinct statements, opinions, or perspectives from the transcript to serve as the poll options.
-   - Use direct quotes where possible, or create close paraphrases that preserve the original meaning when quotes are lengthy or need slight rephrasing for clarity.
-   - Ensure the options represent the range of views or points raised in the discussion and are mutually exclusive where applicable.
-   - If the transcript contains fewer than four distinct points, creatively adapt the available content (e.g., by splitting a complex statement into two options or emphasizing different aspects of a single point), but remain strictly within the transcript's boundaries.
-
-5. **Handling Edge Cases**:
-   - **Short Transcripts**: If the transcript is very short (e.g., fewer than 50 words), focus on the available content to generate a meaningful poll. Use the limited text to craft a title, question, and options that reflect what is present, avoiding filler or generic content.
-   - **Long Transcripts**: If the transcript is lengthy, prioritize the most salient points or the most recent/impactful discussion to ensure the poll remains focused and relevant.
-
-6. **Strict Adherence to Transcript Content**:
-   - Never invent content or add information not found in the transcript.
-   - Use exact phrasing from the transcript whenever possible.
-   - Your options MUST be derived directly from what was said in the transcript.
-   - If the transcript discusses multiple topics, choose the most prominent or recent one.
-
-7. **Output Format**:
-   - Provide the poll in the following JSON format ONLY:
-     {
-       "title": "Engaging Title",
-       "question": "Specific Question?",
-       "options": ["Statement 1", "Statement 2", "Statement 3", "Statement 4"]
-     }
-   - Do not include any additional explanation or text outside of this JSON structure.
-
-Additional Guidelines:
-- Maintain a professional yet engaging tone suitable for a meeting context.
-- Do not invent content or assume details not present in the transcript.
-- If the transcript lacks explicit options, distill the discussion into four representative choices based on implied perspectives or key statements.
+##OUTPUT FORMAT##
+Return a JSON object with this exact structure:
+{
+  "title": "Specific title about the central topic",
+  "question": "Focused question about a key decision point?",
+  "options": ["Option from transcript 1", "Option from transcript 2", "Option from transcript 3", "Option from transcript 4"]
+}
 
 Transcript:
 [Insert transcript here]
 """
 
 def generate_poll(transcript: str) -> Dict[str, Any]:
+    # This function serves as a fallback or for direct testing.
+    # The primary poll generation for the application is via poller.generate_poll_from_transcript.
     """
     Generate a poll based on the provided transcript using LLaMA API.
     
@@ -92,7 +83,8 @@ def generate_poll(transcript: str) -> Dict[str, Any]:
         }
         
         # Check environment variables for LLaMA host
-        llama_host = os.environ.get("LLAMA_HOST", "http://localhost:11434")
+        # llama_host = os.environ.get("LLAMA_HOST", "http://localhost:11434") # Changed
+        llama_host = config.OLLAMA_API # Changed to use config
         
         # Create prompt with transcript
         prompt = POLL_PROMPT.replace("[Insert transcript here]", transcript)
@@ -102,10 +94,13 @@ def generate_poll(transcript: str) -> Dict[str, Any]:
         data = {
             "model": "llama3.2",
             "prompt": prompt,
+            "temperature": 0.2,  # Lower temperature for more focused, accurate responses
             "stream": False
         }
         
-        response = requests.post(f"{llama_host}/api/generate", json=data, headers=headers)
+        # Ensure timeout is applied, and log the request details for debugging
+        logger.debug(f"Sending request to LLaMA API: {llama_host}/api/generate with model {data.get('model')}")
+        response = requests.post(f"{llama_host}/api/generate", json=data, headers=headers, timeout=30)
         
         if response.status_code == 200:
             try:
@@ -132,9 +127,15 @@ def generate_poll(transcript: str) -> Dict[str, Any]:
                 return default_poll
                 
         else:
-            logger.error(f"LLaMA API returned status code {response.status_code}")
+            logger.error(f"LLaMA API request to {llama_host}/api/generate failed with status code {response.status_code}. Response: {response.text}", exc_info=False) # No need for exc_info if we have status and text
             return default_poll
             
-    except Exception as e:
-        logger.error(f"Error generating poll: {str(e)}")
+    except requests.exceptions.Timeout:
+        logger.error(f"Timeout error when calling LLaMA API at {llama_host}/api/generate.", exc_info=True) # exc_info=True is good here
+        return default_poll
+    except requests.exceptions.RequestException as req_err:
+        logger.error(f"Request error when calling LLaMA API at {llama_host}/api/generate: {req_err}", exc_info=True) # exc_info=True is good here
+        return default_poll
+    except Exception as e: # General fallback
+        logger.error(f"Unexpected error generating poll: {str(e)}", exc_info=True) # exc_info=True is good here
         return default_poll

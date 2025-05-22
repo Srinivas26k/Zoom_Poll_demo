@@ -1,75 +1,86 @@
 # run_loop.py
 
-import os, time
+import os
+import time
 from rich.console import Console
-from audio_capture import record_segment
-from transcribe_whisper import WhisperTranscriber
-from poller import generate_poll_from_transcript, post_poll_to_zoom
+from meeting_recorder import MeetingRecorder # Added
 
 console = Console()
 
-def run_loop(device, should_stop):
+def run_loop(device_name, should_stop):
     """
-    Forever: record → transcribe → generate + post poll → delete files
-    Until should_stop Event is set.
+    Initializes MeetingRecorder, starts it, and keeps the loop alive
+    until should_stop Event is set. Handles posting polls via a callback.
     
     Args:
-        device: Audio device name to use for recording
+        device_name: Audio device name to use for recording
         should_stop: threading.Event object to signal loop termination
     """
-    cycle = 0
+    console.log(f"[blue]▶️ Starting run_loop with device: {device_name}[/]")
+
     # Get configuration from environment
     zoom_token = os.getenv("ZOOM_TOKEN")
     meeting_id = os.getenv("MEETING_ID")
-    duration = int(os.getenv("SEGMENT_DURATION", "30"))
+    # SEGMENT_DURATION is used by MeetingRecorder internally if configured, not directly here.
 
     if not zoom_token or not meeting_id:
-        console.log("[red]❌ Missing ZOOM_TOKEN or MEETING_ID in environment[/]")
+        console.log("[red]❌ Missing ZOOM_TOKEN or MEETING_ID in environment. Poll posting will fail.[/]")
         return
 
-    whisper = WhisperTranscriber()
+    recorder = None
+    try:
+        console.log(f"Attempting to initialize MeetingRecorder with device: {device_name}")
+        recorder = MeetingRecorder(device_name=device_name)
+        console.log("[green]✅ MeetingRecorder initialized successfully.[/]")
 
-    while not should_stop.is_set():
-        cycle += 1
-        console.log(f"[blue]▶️  Cycle {cycle}[/]")
-        try:
-            # 1) Record
-            record_success = record_segment(duration=duration, output="segment.wav", device=device)
-            if not record_success:
-                console.log("[yellow]⚠️ Recording failed—skipping cycle[/]")
-                time.sleep(5)  # Wait a bit before next cycle
-                continue
+        def post_new_poll_callback(poll_data):
+            """Callback function to post new polls to Zoom."""
+            from poller import post_poll_to_zoom # Local import
+            
+            console.log(f"💡 New poll generated: {poll_data.get('title')}")
+            try:
+                success = post_poll_to_zoom(
+                    title=poll_data['title'],
+                    question=poll_data['question'],
+                    options=poll_data['options'],
+                    meeting_id=meeting_id,
+                    token=zoom_token
+                )
+                if success:
+                    console.log(f"[green]🚀 Poll '{poll_data['title']}' posted to Zoom successfully.[/]")
+                else:
+                    console.log(f"[yellow]⚠️ Failed to post poll '{poll_data['title']}' to Zoom.[/]")
+            except Exception as e:
+                console.log(f"[red]❌ Error posting poll '{poll_data['title']}': {e}[/]")
 
-            # 2) Transcribe
-            result = whisper.transcribe_audio("segment.wav")
-            text = result.get("text", "") if isinstance(result, dict) else str(result)
-            if not text.strip():
-                console.log("[yellow]⚠️ Empty transcript—skipping poll[/]")
-                time.sleep(5)  # Wait a bit before next cycle
-                continue
+        recorder.on_poll_created = post_new_poll_callback
+        console.log("📝 Poll callback assigned to MeetingRecorder.")
 
-            # 3) Generate poll
-            title, question, options = generate_poll_from_transcript(text)
+        if not recorder.start_recording(): # Pass device_name for older start_recording if needed, or rely on __init__
+            console.log("[red]❌ Failed to start MeetingRecorder. Exiting run_loop.[/]")
+            return
+        
+        console.log("[green]🎤 MeetingRecorder started. Monitoring for stop signal...[/]")
 
-            # 4) Post poll
-            post_poll_to_zoom(title, question, options, meeting_id, zoom_token)
+        while not should_stop.is_set():
+            # The main work is done by MeetingRecorder's threads.
+            # This loop just keeps the main thread alive and checks the stop signal.
+            time.sleep(1) 
 
-            # 5) Cleanup
-            for f in ("segment.wav", "temp_stereo.wav"):
-                if os.path.exists(f):
-                    os.remove(f)
-            console.log("[green]🗑️  Cleaned up audio files[/]")
-
-        except Exception as e:
-            console.log(f"[red]❌ Error in run_loop:[/] {e}")
-            time.sleep(5)  # Pause on error to avoid rapid error loops
-
-        # Check if we should stop before continuing
-        if should_stop.is_set():
-            console.log("[yellow]⚠️ Stopping automation as requested[/]")
-            break
-
-        # small pause before next cycle
-        time.sleep(1)
-    
-    console.log("[green]✅ Automation loop terminated[/]")
+    except ValueError as ve:
+        console.log(f"[red]❌ ValueError during MeetingRecorder initialization: {ve}. Check audio device name and availability.[/]")
+        return # Exit if MeetingRecorder cannot be initialized
+    except Exception as e:
+        console.log(f"[red]❌ An unexpected error occurred in run_loop: {e}[/]")
+    finally:
+        if recorder:
+            console.log("[yellow]⏹️ Stopping MeetingRecorder...[/]")
+            try:
+                recorder.stop_recording()
+                console.log("📼 MeetingRecorder recording stopped.")
+                recorder.close()
+                console.log("🚪 MeetingRecorder resources closed.")
+            except Exception as e:
+                console.log(f"[red]❌ Error during MeetingRecorder cleanup: {e}[/]")
+        
+        console.log("[green]✅ Automation loop terminated[/]")
